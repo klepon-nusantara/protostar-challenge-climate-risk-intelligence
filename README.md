@@ -14,21 +14,19 @@ configs:
     path: submission.csv
 ---
 
-<!--
-HOW TO USE THIS TEMPLATE (delete this comment when you are done)
-
-1. Replace every <...> placeholder, including <Team Name> in the header above.
-2. Fill in submission.csv: 5,880 rows (210 cities × 7 years × 4 metrics).
-3. Optional: put your notebooks or scripts in code/.
-4. Make this dataset public and paste its link in the Submission tab of the challenge Space:
-   https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence
-
-Keep the tag "protostar-climate-2026" in the header: it is how your submission is found.
--->
+> 📋 **This is the submission template** for the [Protostar Challenge: Climate Risk Intelligence](https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence). Copy it into your Hugging Face account, fill it in, and **delete this box** when you are done.
+>
+> 1. **Copy:** `hf download CMU-OSPO/protostar-climate-submission-template --repo-type dataset --local-dir my-submission`, then `hf upload <your-name>/<dataset-name> my-submission . --repo-type dataset` (or create a new dataset on the Hub and upload these files).
+> 2. **Fill in** `submission.csv`: 5,880 rows (210 cities × 7 years × 4 metrics). The table viewer above stays empty until you add your forecasts.
+> 3. **Replace** every `<...>` placeholder in this README, including `<Team Name>` in the header.
+> 4. **Optional:** put your notebooks or scripts in `code/`.
+> 5. **Make the dataset public** and paste its link in the *Submission* tab of the challenge Space.
+>
+> Keep the tag `protostar-climate-2026` in the header: it is how submissions are found.
 
 # <Team Name>: Protostar Climate Challenge Submission
 
-Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made using only data up to 2018-12-31, for the [Urban Climate AI Challenge](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018).
+Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made using only data up to 2018-12-31, for the [Protostar Challenge: Climate Risk Intelligence](https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence).
 
 ## Team
 
