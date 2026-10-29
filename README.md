@@ -26,7 +26,9 @@ configs:
 
 # <Team Name>: Protostar Climate Challenge Submission
 
-Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made using only data up to 2018-12-31, for the [Protostar Challenge: Climate Risk Intelligence](https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence).
+**Negative result:** no <!-- Write "yes" if your main finding is why reuse or reproduction did not work. -->
+
+Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made using only weather records up to 2018-12-31, for the [Protostar Challenge: Climate Risk Intelligence](https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence).
 
 ## Team
 
@@ -50,6 +52,13 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made using only da
 2. **What would we do about it, and who would do it?** <...>
 3. **Why is it sustainable?** <...>
 
+## Feedback to the Ecosystem
+
+<!-- What got in the way, and what would fix it: data, metadata, documentation, licensing, tools, infrastructure, policy. Be specific. -->
+
+- **What got in the way:** <...>
+- **What would fix it:** <...>
+
 ## Files
 
 | File | Content |
@@ -68,6 +77,10 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made using only da
 2. <e.g., run code/forecast.ipynb>
 
 ## Data
+
+<!-- List every external source (name, link, years used) and say whether it was used for the forecasts or only for the analysis and policy idea. Forecast inputs must stop at 2018-12-31. -->
+
+- **External data:** <none, or: name, link, years, forecast or analysis>
 
 Training data: [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), from:
 
