@@ -28,7 +28,7 @@ configs:
 
 **Negative result:** no <!-- Write "yes" if your main finding is why reuse or reproduction did not work. -->
 
-Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made using only weather records up to 2018-12-31, for the [Protostar Challenge: Climate Risk Intelligence](https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence).
+Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end of 2018 (no data that reveals 2019–2025 weather), for the [Protostar Challenge: Climate Risk Intelligence](https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence).
 
 ## Team
 
