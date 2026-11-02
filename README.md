@@ -32,9 +32,9 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end
 
 ## Team
 
-| Name | Hugging Face username | Program |
+| Name | Hugging Face username | University, Program |
 |---|---|---|
-| <Name> | <@username> | <e.g., Heinz MSPPM, Tepper BS Business> |
+| <Name> | <@username> | <e.g., Carnegie Mellon University, Heinz MSPPM> |
 
 ## Method
 
