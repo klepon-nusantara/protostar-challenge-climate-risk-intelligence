@@ -19,7 +19,7 @@ configs:
 > 1. **Copy:** `hf download CMU-OSPO/protostar-climate-submission-template --repo-type dataset --local-dir my-submission`, then `hf upload <your-name>/<dataset-name> my-submission . --repo-type dataset` (or create a new dataset on the Hub and upload these files).
 > 2. **Fill in** the `predicted_value` column of `submission.csv`: the city, year and metric of all 5,880 rows (210 cities × 7 years × 4 metrics) are already there. Check it with `python code/check_submission.py`.
 > 3. **Replace** every `<...>` placeholder in this README, including `<Team Name>` in the header.
-> 4. **Add** your notebooks or scripts to `code/`, and the curated data they use to `data/`: together they should reproduce `submission.csv`.
+> 4. **Add** your notebooks or scripts to `code/`, and the curated data they use to `data/`: together they should reproduce `submission.csv`. Fill in the data card in `data/README.md`.
 > 5. **Make the dataset public** and paste its link in the *Submission* tab of the challenge Space.
 >
 > Keep the tag `protostar-climate-2026` in the header: it is how submissions are found.
@@ -65,7 +65,7 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end
 |---|---|
 | `submission.csv` | Our forecasts: `city_id,year,metric,predicted_value` |
 | `code/` | <Our notebooks or scripts> |
-| `data/` | <The curated data our code uses: each file, what it holds, and its source> |
+| `data/` | The curated data our code uses; described in its data card, [`data/README.md`](data/README.md) |
 
 **Metric codes:** `annual_avg_temp` (°F), `total_precip_in` (inches), `hottest_day_temp` (°F), `cdd` (°F-days).
 **City IDs:** the station `ID` from the `city_info` table of the training dataset (e.g., Pittsburgh = `USW00094823`).
@@ -82,7 +82,7 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end
 <!-- List every external source (name, link, years used) and say whether it was used for the forecasts or only for the analysis and policy idea. Forecast inputs: weather records up to 2018-12-31, and data from any year that does not respond to the weather. -->
 
 - **External data:** <none, or: name, link, years, forecast or analysis>
-- **Curated data in `data/`:** <each file: what it holds, its source, how it was prepared; or a link with the exact version and download steps if it is too large or its license does not allow copying>
+- **Curated data:** see the data card in [`data/README.md`](data/README.md) (each file, its source, license and preparation).
 
 Training data: [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), from:
 
