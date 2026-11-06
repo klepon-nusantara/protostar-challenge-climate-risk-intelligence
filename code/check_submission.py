@@ -1,7 +1,8 @@
 """Check submission.csv before you submit: the same checks the challenge Space runs.
 
 Usage: python code/check_submission.py [path/to/submission.csv]
-Needs pandas and huggingface_hub (to read the list of cities from the training dataset).
+Needs pandas, pyarrow and huggingface_hub (to read the list of cities from the training dataset):
+pip install -r code/requirements.txt
 """
 
 import sys
