@@ -73,7 +73,7 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end
 | File | Content |
 |---|---|
 | `submission.csv` | Our forecasts: `city_id,year,metric,predicted_value` |
-| `code/` | <Our notebooks or scripts> |
+| `code/` | The reusable forecasting package, tests, and optional example notebooks |
 | `data/` | The curated data our code uses; described in its data card, [`data/README.md`](data/README.md) |
 
 **Metric codes:** `annual_avg_temp` (°F), `total_precip_in` (inches), `hottest_day_temp` (°F), `cdd` (°F-days).
@@ -94,15 +94,19 @@ python -m pip install -e code
 
 ### Run
 
-From the repository root, download and validate the challenge data with:
+From the repository root, run the package workflows (the notebooks in
+`code/nb/` are examples and are not required):
 
 ```bash
-python -m climate_challenge
+python -m climate_challenge prepare
+python -m climate_challenge backtest
+python -m climate_challenge forecast
 ```
 
-This downloads the original tables as Parquet files directly into `data/`.
-Run the analysis notebooks in `code/nb/` from this environment. To validate
-the submission file, run:
+`prepare` downloads and validates the original tables in `data/`. `backtest`
+compares methods using rolling time-based origins. `forecast` repeats the
+backtest for method selection, forecasts 2019–2025, and fills the submission
+template. To validate the generated submission independently, run:
 
 ```bash
 python code/check_submission.py

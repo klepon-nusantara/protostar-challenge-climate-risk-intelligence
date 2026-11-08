@@ -1,8 +1,15 @@
 # Code
 
-- `src/climate_challenge/data.py` downloads the challenge's `annual_indices` and
-  `city_info` tables and validates their schemas and forecast cutoff.
-- `nb/` contains exploratory notebooks.
+- `src/climate_challenge/data.py` downloads the challenge tables.
+- `src/climate_challenge/cleaning.py` cleans annual indices and creates an audit.
+- `src/climate_challenge/backtesting.py` runs rolling-origin backtests.
+- `src/climate_challenge/models/` contains the baseline and global model code.
+- `src/climate_challenge/evaluation.py` scores methods and selects a method per metric.
+- `src/climate_challenge/forecasting.py` generates the final forecasts.
+- `src/climate_challenge/submission.py` fills and validates the challenge CSV.
+- `src/climate_challenge/__main__.py` provides the `prepare`, `backtest`, and
+  `forecast` commands.
+- `nb/` contains exploratory/example notebooks; the package does not execute them.
 - `check_submission.py` validates `submission.csv`.
 - `requirements.txt` lists the Python dependencies.
 
@@ -14,14 +21,19 @@ Install the package in editable mode once from the repository root:
 python -m pip install -e code
 ```
 
-Then download and validate the original tables from the repository root:
+Run the end-to-end workflows from the repository root:
 
 ```bash
-python -m climate_challenge
+python -m climate_challenge prepare
+python -m climate_challenge backtest
+python -m climate_challenge forecast
 ```
 
-The downloaded tables are stored under the project's `data/` directory. In
-Python, they can also be loaded with:
+`forecast` runs a temporal backtest, selects methods per metric, predicts
+2019–2025, and writes the filled challenge template to `submission.csv`.
+The notebooks are optional examples, not pipeline entry points.
+
+The tables are also available as Python objects:
 
 ```python
 from climate_challenge.data import prepare_dataset
@@ -32,13 +44,11 @@ cities = prepared.city_info
 ```
 
 Missing Parquet files are downloaded directly into the repository's `data/`
-directory. Subsequent runs read those local files without using the
-Hugging Face Datasets cache.
-Additional feature sources can be supplied as `DataSource` objects. Their
-loaders receive the forecast cutoff and should apply it to any download query.
-Weather-dependent sources must declare their date column; records after the
-cutoff are rejected. Sources are returned separately so callers can join each
-one using an explicit key.
+directory. Subsequent runs read those local files. Additional feature sources
+can be supplied as `DataSource` objects. Their loaders receive the forecast
+cutoff and should apply it to any download query. Weather-dependent sources
+must declare their date column; records after the cutoff are rejected. Sources
+are returned separately so callers can join each one using an explicit key.
 
 ```python
 import pandas as pd
