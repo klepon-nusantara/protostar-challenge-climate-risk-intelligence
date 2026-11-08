@@ -112,6 +112,49 @@ template. To validate the generated submission independently, run:
 python code/check_submission.py
 ```
 
+## Submit to Hugging Face
+
+Before submitting, replace the placeholders in this README, remove the template
+instructions at the top, and make sure `submission.csv` contains the forecasts
+you intend to submit. Validate it from the repository root:
+
+```bash
+python code/check_submission.py
+```
+
+Sign in to Hugging Face, create a **public dataset** under your team's
+namespace, and authenticate the command-line client:
+
+```bash
+python -m pip install -U huggingface_hub
+hf auth login
+```
+
+The submission dataset is
+[`ardacandrasubiantoro/klepon-nusantara-submission`](https://huggingface.co/datasets/ardacandrasubiantoro/klepon-nusantara-submission).
+From the repository root, upload the required README, forecasts, and code:
+
+```bash
+hf upload ardacandrasubiantoro/klepon-nusantara-submission README.md README.md --repo-type dataset
+hf upload ardacandrasubiantoro/klepon-nusantara-submission submission.csv submission.csv --repo-type dataset
+hf upload ardacandrasubiantoro/klepon-nusantara-submission code code --repo-type dataset
+```
+
+To include the input data and its data card, first run
+`python -m climate_challenge prepare`, then upload them explicitly:
+
+```bash
+hf upload ardacandrasubiantoro/klepon-nusantara-submission data/README.md data/README.md --repo-type dataset
+hf upload ardacandrasubiantoro/klepon-nusantara-submission data/annual_indices.parquet data/annual_indices.parquet --repo-type dataset
+hf upload ardacandrasubiantoro/klepon-nusantara-submission data/city_info.parquet data/city_info.parquet --repo-type dataset
+```
+
+The Parquet files are ignored by Git, so they are not included by uploading
+`code/` or the other files above. Check the dataset page to confirm it is public
+and contains the intended files. Finally, paste the dataset URL above in the
+competition Space's **Submission** tab. The competition records the dataset
+version at submission time; submit again after any changes you want counted.
+
 ## Data
 
 <!-- List every external source (name, link, years used) and say whether it was used for the forecasts or only for the analysis and policy idea. Forecast inputs: weather records up to 2018-12-31, and data from any year that does not respond to the weather. -->
