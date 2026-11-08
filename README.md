@@ -81,10 +81,23 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end
 
 ## How to Reproduce
 
-<!-- The steps someone else would follow to recreate submission.csv. -->
+### Environment
 
-1. <e.g., install the packages in code/requirements.txt>
-2. <e.g., run code/forecast.ipynb, which reads data/ and writes submission.csv>
+Tested with Python 3.11.18. The direct Python dependencies are pinned in [`code/requirements.txt`](code/requirements.txt).
+
+```bash
+conda create --name climate-challenge python=3.11.18 pip
+conda activate climate-challenge
+python -m pip install -r code/requirements.txt
+```
+
+### Run
+
+Run the analysis notebooks in `code/nb/` from this environment. To validate the submission file, run:
+
+```bash
+python code/check_submission.py
+```
 
 ## Data
 
