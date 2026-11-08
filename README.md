@@ -89,11 +89,20 @@ Tested with Python 3.11.18. The direct Python dependencies are pinned in [`code/
 conda create --name climate-challenge python=3.11.18 pip
 conda activate climate-challenge
 python -m pip install -r code/requirements.txt
+python -m pip install -e code
 ```
 
 ### Run
 
-Run the analysis notebooks in `code/nb/` from this environment. To validate the submission file, run:
+From the repository root, download and validate the challenge data with:
+
+```bash
+python -m climate_challenge
+```
+
+This downloads the original tables as Parquet files directly into `data/`.
+Run the analysis notebooks in `code/nb/` from this environment. To validate
+the submission file, run:
 
 ```bash
 python code/check_submission.py
