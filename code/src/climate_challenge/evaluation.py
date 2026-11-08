@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from .backtesting import MODEL_METHODS
+from .config import DEFAULT_CONFIG, MODEL_METHODS
 
 
 def evaluate_backtest(
@@ -50,8 +50,8 @@ def block_bootstrap_mae_difference(
     metric: str,
     candidate: str,
     reference: str,
-    samples: int = 1000,
-    seed: int = 42,
+    samples: int = DEFAULT_CONFIG.evaluation.bootstrap_samples,
+    seed: int = DEFAULT_CONFIG.evaluation.random_state,
 ) -> tuple[float, float, float]:
     """Bootstrap candidate-minus-reference MAE by resampling origin blocks."""
 

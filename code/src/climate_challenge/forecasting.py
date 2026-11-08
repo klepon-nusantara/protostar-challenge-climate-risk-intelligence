@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 
 from .cleaning import TARGET_COLUMNS, metric_matrix, station_metadata
+from .config import DEFAULT_CONFIG
 from .evaluation import select_best_methods
 from .models.global_models import (
     GlobalModelConfig,
@@ -13,16 +14,18 @@ from .models.global_models import (
     fit_predict_origin,
 )
 
-FORECAST_ORIGIN = 2018
-FORECAST_HORIZON = 7
+FORECAST_ORIGIN = DEFAULT_CONFIG.forecast.origin
+FORECAST_HORIZON = DEFAULT_CONFIG.forecast.horizon
 
 
 def apply_sparse_station_fallback(
     forecasts: pd.DataFrame,
     cleaned: pd.DataFrame,
     metadata: pd.DataFrame,
-    minimum_valid_years: int = 15,
-    neighbors: int = 3,
+    minimum_valid_years: int = DEFAULT_CONFIG.forecast.minimum_valid_years,
+    neighbors: int = DEFAULT_CONFIG.forecast.neighbor_count,
+    origin: int = FORECAST_ORIGIN,
+    baseline_window: int = DEFAULT_CONFIG.model.baseline_window,
 ) -> pd.DataFrame:
     """Fill stations with sparse recent records using nearby station forecasts."""
 
@@ -33,7 +36,7 @@ def apply_sparse_station_fallback(
     matrices = {metric: metric_matrix(cleaned, metric) for metric in TARGET_COLUMNS}
     sparse: set[str] = set()
     for matrix in matrices.values():
-        coverage = matrix.loc[1989:FORECAST_ORIGIN].notna().sum()
+        coverage = matrix.loc[origin - baseline_window + 1 : origin].notna().sum()
         sparse.update(coverage[coverage < minimum_valid_years].index.astype(str))
 
     good_ids = [station for station in station_ids if station not in sparse]
@@ -93,8 +96,10 @@ def forecast_all_stations(
     backtest: pd.DataFrame,
     origin: int = FORECAST_ORIGIN,
     horizon: int = FORECAST_HORIZON,
-    model_config: GlobalModelConfig = GlobalModelConfig(),
-    use_sparse_fallback: bool = True,
+    model_config: GlobalModelConfig = DEFAULT_CONFIG.model,
+    use_sparse_fallback: bool = DEFAULT_CONFIG.forecast.use_sparse_fallback,
+    minimum_valid_years: int = DEFAULT_CONFIG.forecast.minimum_valid_years,
+    neighbors: int = DEFAULT_CONFIG.forecast.neighbor_count,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     """Fit selected methods at the final origin and return station forecasts."""
 
@@ -110,7 +115,15 @@ def forecast_all_stations(
     result = pd.concat(frames, ignore_index=True)
 
     if use_sparse_fallback:
-        result = apply_sparse_station_fallback(result, cleaned, metadata)
+        result = apply_sparse_station_fallback(
+            result,
+            cleaned,
+            metadata,
+            minimum_valid_years=minimum_valid_years,
+            neighbors=neighbors,
+            origin=origin,
+            baseline_window=model_config.baseline_window,
+        )
 
     forecast_rows: list[pd.DataFrame] = []
     for metric, method in best_methods.items():

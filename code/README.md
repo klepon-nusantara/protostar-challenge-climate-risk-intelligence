@@ -1,6 +1,7 @@
 # Code
 
 - `src/climate_challenge/data.py` downloads the challenge tables.
+- `src/climate_challenge/config.py` contains shared pipeline and model defaults.
 - `src/climate_challenge/cleaning.py` cleans annual indices and creates an audit.
 - `src/climate_challenge/backtesting.py` runs rolling-origin backtests.
 - `src/climate_challenge/models/` contains the baseline and global model code.
@@ -32,6 +33,13 @@ python -m climate_challenge forecast
 `forecast` runs a temporal backtest, selects methods per metric, predicts
 2019–2025, and writes the filled challenge template to `submission.csv`.
 The notebooks are optional examples, not pipeline entry points.
+
+Adjust shared defaults in `src/climate_challenge/config.py`. This includes
+backtest origins and horizon, cleaning tolerance, model hyperparameters, and
+evaluation resampling, forecast fallback settings, and submission paths. CLI
+options such as `--start-origin`, `--end-origin`, `--horizon`, `--template`, and
+`--output` override their corresponding defaults for one run. The data cutoff
+remains fixed to the challenge's 2018-12-31 forecast cutoff.
 
 The tables are also available as Python objects:
 

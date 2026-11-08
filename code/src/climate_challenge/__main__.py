@@ -9,6 +9,7 @@ import pandas as pd
 
 from .backtesting import run_backtest
 from .cleaning import clean_annual_indices
+from .config import DEFAULT_CONFIG
 from .data import FORECAST_CUTOFF, PreparedDataset, prepare_dataset
 from .evaluation import evaluate_backtest
 from .forecasting import forecast_all_stations
@@ -24,9 +25,13 @@ def _load_clean_data() -> tuple[PreparedDataset, pd.DataFrame]:
 
 
 def _add_backtest_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--start-origin", type=int, default=1995)
-    parser.add_argument("--end-origin", type=int, default=2011)
-    parser.add_argument("--horizon", type=int, default=7)
+    parser.add_argument(
+        "--start-origin", type=int, default=DEFAULT_CONFIG.backtest.start_origin
+    )
+    parser.add_argument(
+        "--end-origin", type=int, default=DEFAULT_CONFIG.backtest.end_origin
+    )
+    parser.add_argument("--horizon", type=int, default=DEFAULT_CONFIG.backtest.horizon)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -47,8 +52,16 @@ def build_parser() -> argparse.ArgumentParser:
         "forecast", help="backtest, select methods, and fill submission.csv"
     )
     _add_backtest_arguments(forecast_parser)
-    forecast_parser.add_argument("--template", type=Path, default=Path("submission.csv"))
-    forecast_parser.add_argument("--output", type=Path, default=Path("submission.csv"))
+    forecast_parser.add_argument(
+        "--template",
+        type=Path,
+        default=Path(DEFAULT_CONFIG.submission.template_path),
+    )
+    forecast_parser.add_argument(
+        "--output",
+        type=Path,
+        default=Path(DEFAULT_CONFIG.submission.output_path),
+    )
 
     return parser
 
@@ -74,8 +87,11 @@ def main() -> None:
         parser.error("--start-origin must not exceed --end-origin")
     if args.horizon < 1:
         parser.error("--horizon must be at least 1")
-    if command == "forecast" and args.horizon != 7:
-        parser.error("forecast submissions require --horizon 7")
+    if command == "forecast" and args.horizon != DEFAULT_CONFIG.forecast.horizon:
+        parser.error(
+            "forecast submissions require "
+            f"--horizon {DEFAULT_CONFIG.forecast.horizon}"
+        )
     origins = range(args.start_origin, args.end_origin + 1)
 
     prepared, cleaned = _load_clean_data()

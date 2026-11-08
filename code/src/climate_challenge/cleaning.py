@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from .config import DEFAULT_CONFIG
+
 TARGET_COLUMNS = {
     "annual_avg_temp": "Avg Temp",
     "total_precip_in": "ToT Prcp",
@@ -39,7 +41,8 @@ class CleaningResult:
 
 
 def clean_annual_indices(
-    annual_indices: pd.DataFrame, missing_day_tolerance: int = 60
+    annual_indices: pd.DataFrame,
+    missing_day_tolerance: int = DEFAULT_CONFIG.cleaning.missing_day_tolerance,
 ) -> CleaningResult:
     """Replace invalid values and mask years with too many missing days."""
 

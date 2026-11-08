@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 import lightgbm as lgb
 import pandas as pd
 from sklearn.impute import SimpleImputer
@@ -11,6 +9,7 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
+from ..config import DEFAULT_CONFIG, GlobalModelConfig
 from .baselines import recent_average, trend_coefficients
 
 FEATURES = (
@@ -29,24 +28,11 @@ FEATURES = (
 )
 
 
-@dataclass(frozen=True)
-class GlobalModelConfig:
-    """Fixed model parameters; tune only inside temporal validation."""
-
-    first_origin: int = 1925
-    ridge_alpha: float = 10.0
-    lightgbm_estimators: int = 300
-    lightgbm_learning_rate: float = 0.03
-    lightgbm_num_leaves: int = 15
-    lightgbm_min_child_samples: int = 100
-    random_state: int = 42
-
-
 def build_panel(
     matrix: pd.DataFrame,
     metadata: pd.DataFrame,
-    horizon: int = 7,
-    config: GlobalModelConfig = GlobalModelConfig(),
+    horizon: int = DEFAULT_CONFIG.backtest.horizon,
+    config: GlobalModelConfig = DEFAULT_CONFIG.model,
 ) -> pd.DataFrame:
     """Build leakage-safe city/origin/horizon examples for one metric."""
 
@@ -62,18 +48,27 @@ def build_panel(
         )
 
     final_observed_year = int(matrix.index.max())
-    first_origin = max(config.first_origin, int(matrix.index.min()) + 29)
+    first_origin = max(
+        config.first_origin, int(matrix.index.min()) + config.baseline_window - 1
+    )
     feature_years = pd.RangeIndex(int(matrix.index.min()), final_observed_year + horizon + 1)
     values = matrix.reindex(feature_years)
     records: list[pd.DataFrame] = []
 
     for origin in range(first_origin, final_observed_year + 1):
-        average_30 = recent_average(values, origin, 30)
-        average_10 = recent_average(values, origin, 10)
-        average_5 = recent_average(values, origin, 5)
+        average_30 = recent_average(values, origin, config.baseline_window)
+        average_10 = recent_average(values, origin, config.average_10_years)
+        average_5 = recent_average(values, origin, config.average_5_years)
         latest = values.loc[:origin].ffill().iloc[-1]
-        variability = values.loc[origin - 29 : origin].std()
-        coefficients = trend_coefficients(values, origin)
+        variability = values.loc[
+            origin - config.baseline_window + 1 : origin
+        ].std()
+        coefficients = trend_coefficients(
+            values,
+            origin,
+            window=config.baseline_window,
+            min_points=config.minimum_trend_points,
+        )
         trend_slope = coefficients["slope"]
         national_last = (latest - average_30).mean()
         national_5 = (average_5 - average_30).mean()
@@ -122,7 +117,7 @@ def build_panel(
 def fit_predict_origin(
     panel: pd.DataFrame,
     origin: int,
-    config: GlobalModelConfig = GlobalModelConfig(),
+    config: GlobalModelConfig = DEFAULT_CONFIG.model,
 ) -> tuple[pd.DataFrame, lgb.LGBMRegressor]:
     """Fit models using only labels available at origin and forecast its leads."""
 
@@ -150,10 +145,10 @@ def fit_predict_origin(
         learning_rate=config.lightgbm_learning_rate,
         num_leaves=config.lightgbm_num_leaves,
         min_child_samples=config.lightgbm_min_child_samples,
-        subsample=0.8,
-        subsample_freq=1,
-        colsample_bytree=0.8,
-        reg_lambda=1.0,
+        subsample=config.lightgbm_subsample,
+        subsample_freq=config.lightgbm_subsample_freq,
+        colsample_bytree=config.lightgbm_colsample_bytree,
+        reg_lambda=config.lightgbm_reg_lambda,
         random_state=config.random_state,
         verbosity=-1,
         n_jobs=1,

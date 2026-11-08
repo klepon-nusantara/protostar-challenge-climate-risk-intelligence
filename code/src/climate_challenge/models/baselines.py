@@ -5,10 +5,16 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ..config import DEFAULT_CONFIG
+
 BASELINE_METHODS = ("Last Year", "30-Yr Avg", "Linear Trend")
 
 
-def recent_average(matrix: pd.DataFrame, origin: int, window: int = 30) -> pd.Series:
+def recent_average(
+    matrix: pd.DataFrame,
+    origin: int,
+    window: int = DEFAULT_CONFIG.model.baseline_window,
+) -> pd.Series:
     return matrix.loc[origin - window + 1 : origin].mean()
 
 
@@ -17,7 +23,10 @@ def last_observation(matrix: pd.DataFrame, origin: int) -> pd.Series:
 
 
 def trend_coefficients(
-    matrix: pd.DataFrame, origin: int, window: int = 30, min_points: int = 15
+    matrix: pd.DataFrame,
+    origin: int,
+    window: int = DEFAULT_CONFIG.model.baseline_window,
+    min_points: int = DEFAULT_CONFIG.model.minimum_trend_points,
 ) -> pd.DataFrame:
     """Fit a separate least-squares line to each station's trailing window."""
 
@@ -41,7 +50,7 @@ def forecast_baselines(
     matrix: pd.DataFrame,
     origin: int,
     horizon: int,
-    min_trend_points: int = 15,
+    min_trend_points: int = DEFAULT_CONFIG.model.minimum_trend_points,
 ) -> pd.DataFrame:
     """Forecast each station for one lead using the shared baselines."""
 

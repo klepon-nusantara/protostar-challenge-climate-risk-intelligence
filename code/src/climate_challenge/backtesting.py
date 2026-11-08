@@ -5,29 +5,22 @@ from __future__ import annotations
 import pandas as pd
 
 from .cleaning import TARGET_COLUMNS, metric_matrix, station_metadata
+from .config import DEFAULT_CONFIG, MODEL_METHODS
 from .models.global_models import (
     GlobalModelConfig,
     build_panel,
     fit_predict_origin,
 )
 
-MODEL_METHODS = (
-    "Last Year",
-    "30-Yr Avg",
-    "Linear Trend",
-    "Half-Trend",
-    "Ridge",
-    "LightGBM",
-    "Ensemble",
-)
-
-
 def run_backtest(
     cleaned: pd.DataFrame,
     city_info: pd.DataFrame,
-    origins: range | list[int] | tuple[int, ...] = range(1995, 2012),
-    horizon: int = 7,
-    model_config: GlobalModelConfig = GlobalModelConfig(),
+    origins: range | list[int] | tuple[int, ...] = range(
+        DEFAULT_CONFIG.backtest.start_origin,
+        DEFAULT_CONFIG.backtest.end_origin + 1,
+    ),
+    horizon: int = DEFAULT_CONFIG.backtest.horizon,
+    model_config: GlobalModelConfig = DEFAULT_CONFIG.model,
 ) -> pd.DataFrame:
     """Replay fixed historical origins, scoring only observed target years."""
 
