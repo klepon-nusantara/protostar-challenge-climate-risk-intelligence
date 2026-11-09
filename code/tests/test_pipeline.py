@@ -116,6 +116,45 @@ class CleaningAndEvaluationTests(unittest.TestCase):
 
         pd.testing.assert_frame_equal(original, changed)
 
+    def test_region_features_are_one_hot_and_cover_unassigned_stations(self) -> None:
+        annual, cities = make_dataset()
+        cleaned = clean_annual_indices(annual).data
+        matrix = metric_matrix(cleaned, "annual_avg_temp")
+        metadata = station_metadata(cities)
+        metadata.loc["US000000000", ["Lat", "Lon"]] = [41.0, -90.0]
+        metadata.loc["US000000001", ["Lat", "Lon"]] = [32.0, -90.0]
+        metadata.loc["US000000002", ["Lat", "Lon"]] = [37.0, -122.0]
+        metadata.loc["US000000003", ["Lat", "Lon"]] = [42.0, -71.0]
+        metadata.loc["US000000004", ["Lat", "Lon"]] = [40.0, -110.0]
+        metadata.loc["US000000005", ["Lat", "Lon"]] = [32.0, -100.0]
+        config = GlobalModelConfig(first_origin=1989)
+
+        panel = build_panel(matrix, metadata, horizon=1, config=config)
+        forecast_rows = panel.loc[panel["origin"] == 2010].set_index("city_id")
+        region_columns = [
+            "region_midwest",
+            "region_southern",
+            "region_west_coast",
+            "region_new_england",
+            "region_other",
+        ]
+        expected_regions = {
+            "US000000000": "region_midwest",
+            "US000000001": "region_southern",
+            "US000000002": "region_west_coast",
+            "US000000003": "region_new_england",
+            "US000000004": "region_other",
+            "US000000005": "region_southern",
+        }
+
+        self.assertTrue(forecast_rows[region_columns].sum(axis=1).eq(1).all())
+        for station_id, expected_column in expected_regions.items():
+            self.assertEqual(forecast_rows.loc[station_id, expected_column], 1.0)
+        self.assertTrue(pd.isna(forecast_rows.loc["US000000004", "regional_anomaly"]))
+        self.assertTrue(
+            np.isfinite(forecast_rows.loc["US000000001", "regional_anomaly"])
+        )
+
     def test_backtest_and_final_submission_pipeline(self) -> None:
         annual, city_info = make_dataset()
         cleaned = clean_annual_indices(annual).data
