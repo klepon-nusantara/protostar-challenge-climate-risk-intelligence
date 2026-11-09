@@ -138,6 +138,11 @@ class OotEvaluationTests(unittest.TestCase):
             self.assertIn(
                 "Overall pooled MAE across the full scored period:", log_content
             )
+            self.assertIn("Best pooled MAE by metric:", log_content)
+            self.assertRegex(
+                log_content,
+                r"annual_avg_temp\s+30-Yr Avg\s+0\.000000\s+2",
+            )
             self.assertIn("2.000000", log_content)
 
     def test_fixed_origin_scores_all_methods_by_lead(self) -> None:

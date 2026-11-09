@@ -101,6 +101,12 @@ def append_oot_run_log(
     target_rows = backtest[["target_year", "city_id"]].drop_duplicates()
     methods = sorted(scores["method"].dropna().unique())
     overall_scores = evaluate_backtest(backtest)
+    best_scores = (
+        overall_scores.dropna(subset=["mae"])
+        .sort_values(["metric", "mae", "method"], kind="stable")
+        .groupby("metric", sort=True, as_index=False)
+        .first()
+    )
     log_file = Path(log_path)
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with log_file.open("a", encoding="utf-8") as output:
@@ -145,6 +151,13 @@ def append_oot_run_log(
         output.write("Overall pooled MAE across the full scored period:\n")
         output.write(
             overall_scores.to_string(
+                index=False, float_format=lambda value: f"{value:.6f}"
+            )
+            + "\n"
+        )
+        output.write("Best pooled MAE by metric:\n")
+        output.write(
+            best_scores.to_string(
                 index=False, float_format=lambda value: f"{value:.6f}"
             )
             + "\n"
