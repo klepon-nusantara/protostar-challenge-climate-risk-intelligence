@@ -14,7 +14,7 @@ from ..config import DEFAULT_CONFIG, GlobalModelConfig
 from .baselines import recent_average, trend_coefficients
 
 REGIONS = ("midwest", "southern", "west_coast", "new_england", "other")
-FEATURES = (
+BASE_FEATURES = (
     "ly_a",
     "a5_a",
     "a10_a",
@@ -34,6 +34,166 @@ FEATURES = (
     "nat_ly",
     "nat_a5",
 )
+DAILY_SUMMARY_COLUMNS = (
+    *(f"{season}_temp" for season in ("djf", "mam", "jja", "son")),
+    *(f"{season}_prcp" for season in ("djf", "mam", "jja", "son")),
+    "hot_day_fraction",
+    "cold_day_fraction",
+    "heavy_rain_fraction",
+    "wet_day_fraction",
+    "wet_day_intensity",
+    "max_daily_prcp",
+    "longest_dry_spell",
+)
+DAILY_FEATURES = tuple(
+    f"daily_{column}_a5" for column in DAILY_SUMMARY_COLUMNS
+)
+FEATURES = (*BASE_FEATURES, *DAILY_FEATURES)
+
+
+def _daily_feature_matrices(
+    daily_observations: pd.DataFrame,
+    station_ids: pd.Index,
+) -> dict[str, pd.DataFrame]:
+    """Summarize daily observations into station-year feature matrices."""
+
+    required = {"ID", "Date", "tmax", "tmin", "prcp"}
+    missing = required.difference(daily_observations.columns)
+    if missing:
+        raise ValueError(
+            "daily observations are missing required columns: "
+            + ", ".join(sorted(missing))
+        )
+    daily = daily_observations.loc[:, ["ID", "Date", "tmax", "tmin", "prcp"]].copy()
+    daily["ID"] = daily["ID"].astype(str)
+    daily["Date"] = pd.to_datetime(daily["Date"], errors="coerce")
+    if daily[["ID", "Date"]].isna().any().any():
+        raise ValueError("daily observations contain missing IDs or invalid dates")
+    if daily.duplicated(["ID", "Date"]).any():
+        raise ValueError("daily observations contain duplicate station dates")
+    daily = daily.loc[daily["ID"].isin(station_ids)].sort_values(
+        ["ID", "Date"], ignore_index=True
+    )
+    if daily.empty:
+        raise ValueError("daily observations do not cover any modeled stations")
+
+    for column in ("tmax", "tmin", "prcp"):
+        daily[column] = pd.to_numeric(daily[column], errors="coerce")
+    daily["Year"] = daily["Date"].dt.year
+    daily["month"] = daily["Date"].dt.month
+    daily["daily_mean_temp"] = (daily["tmax"] + daily["tmin"]) / 2
+    daily["season"] = daily["month"].map(
+        {
+            12: "djf",
+            1: "djf",
+            2: "djf",
+            3: "mam",
+            4: "mam",
+            5: "mam",
+            6: "jja",
+            7: "jja",
+            8: "jja",
+            9: "son",
+            10: "son",
+            11: "son",
+        }
+    )
+
+    seasonal = daily.groupby(["ID", "Year", "season"], sort=False).agg(
+        temperature=("daily_mean_temp", "mean"),
+        precipitation=("prcp", "mean"),
+    )
+    seasonal_wide = seasonal.unstack("season")
+    seasonal_wide.columns = [
+        f"{season}_{measure}"
+        for measure, season in seasonal_wide.columns
+    ]
+    seasonal_wide = seasonal_wide.rename(
+        columns={
+            f"{season}_temperature": f"{season}_temp"
+            for season in ("djf", "mam", "jja", "son")
+        }
+        | {
+            f"{season}_precipitation": f"{season}_prcp"
+            for season in ("djf", "mam", "jja", "son")
+        }
+    )
+
+    daily["_hot"] = (daily["tmax"] > 90.0).astype(float).where(
+        daily["tmax"].notna()
+    )
+    daily["_cold"] = (daily["tmin"] < 32.0).astype(float).where(
+        daily["tmin"].notna()
+    )
+    daily["_heavy_rain"] = (daily["prcp"] >= 1.0).astype(float).where(
+        daily["prcp"].notna()
+    )
+    daily["_wet"] = (daily["prcp"] >= 0.01).astype(float).where(
+        daily["prcp"].notna()
+    )
+    daily["_wet_prcp"] = daily["prcp"].where(daily["prcp"] >= 0.01)
+    annual = daily.groupby(["ID", "Year"], sort=False).agg(
+        hot_day_fraction=("_hot", "mean"),
+        cold_day_fraction=("_cold", "mean"),
+        heavy_rain_fraction=("_heavy_rain", "mean"),
+        wet_day_fraction=("_wet", "mean"),
+        wet_day_intensity=("_wet_prcp", "mean"),
+        max_daily_prcp=("prcp", "max"),
+    )
+
+    dry = daily["prcp"].notna() & daily["prcp"].lt(0.01)
+    grouped = daily.groupby(["ID", "Year"], sort=False)
+    previous_date = grouped["Date"].shift()
+    previous_dry = dry.groupby([daily["ID"], daily["Year"]], sort=False).shift(
+        fill_value=False
+    )
+    new_dry_run = ~(
+        dry
+        & previous_dry
+        & daily["Date"].sub(previous_date).eq(pd.Timedelta(days=1))
+    )
+    run_number = new_dry_run.astype(int).groupby(
+        [daily["ID"], daily["Year"]], sort=False
+    ).cumsum()
+    dry_runs = daily.loc[dry, ["ID", "Year"]].assign(
+        run_number=run_number.loc[dry].to_numpy()
+    )
+    longest_dry_spell = (
+        dry_runs.groupby(["ID", "Year", "run_number"], sort=False)
+        .size()
+        .groupby(level=["ID", "Year"])
+        .max()
+        .rename("longest_dry_spell")
+    )
+    annual = annual.join(longest_dry_spell)
+    summary = seasonal_wide.join(annual).reindex(columns=DAILY_SUMMARY_COLUMNS)
+
+    matrices = {
+        column: summary[column]
+        .unstack("ID")
+        .sort_index()
+        .reindex(columns=station_ids)
+        for column in DAILY_SUMMARY_COLUMNS
+    }
+    return matrices
+
+
+def _daily_features_at_origin(
+    matrices: dict[str, pd.DataFrame],
+    station_ids: pd.Index,
+    origin: int,
+    config: GlobalModelConfig,
+) -> pd.DataFrame:
+    """Calculate recent-minus-normal daily features using data through origin."""
+
+    recent_start = origin - config.average_5_years + 1
+    baseline_start = origin - config.baseline_window + 1
+    features: dict[str, pd.Series] = {}
+    for column, matrix in matrices.items():
+        history = matrix.loc[baseline_start:origin].reindex(columns=station_ids)
+        recent = history.loc[recent_start:origin]
+        features[f"daily_{column}_a5"] = recent.mean() - history.mean()
+    return pd.DataFrame(features, index=station_ids)
 
 
 def _station_regions(coordinates: pd.DataFrame) -> pd.Series:
@@ -153,6 +313,8 @@ def build_panel(
     metadata: pd.DataFrame,
     horizon: int = DEFAULT_CONFIG.backtest.horizon,
     config: GlobalModelConfig = DEFAULT_CONFIG.model,
+    daily_observations: pd.DataFrame | None = None,
+    daily_feature_matrices: dict[str, pd.DataFrame] | None = None,
 ) -> pd.DataFrame:
     """Build leakage-safe city/origin/horizon examples for one metric."""
 
@@ -167,6 +329,13 @@ def build_panel(
             f"Missing coordinates for {len(missing_metadata)} station IDs"
         )
     coordinates = metadata.reindex(station_ids)
+    if daily_observations is not None and daily_feature_matrices is not None:
+        raise ValueError(
+            "Pass daily observations or daily feature matrices, not both"
+        )
+    daily_matrices = daily_feature_matrices
+    if daily_observations is not None:
+        daily_matrices = _daily_feature_matrices(daily_observations, station_ids)
     regions = _station_regions(coordinates)
     region_features = pd.DataFrame(
         {
@@ -232,6 +401,16 @@ def build_panel(
         regional_anomaly = _regional_anomaly(anomalies, regions)
         national_last = anomalies.mean()
         national_5 = (average_5 - average_30).mean()
+        daily_features = (
+            _daily_features_at_origin(
+                daily_matrices,
+                station_ids,
+                origin,
+                config,
+            )
+            if daily_matrices is not None
+            else None
+        )
 
         for lead in range(1, horizon + 1):
             target_year = origin + lead
@@ -271,6 +450,14 @@ def build_panel(
                         "lon": metadata.reindex(station_ids)["Lon"].to_numpy(),
                         "nat_ly": national_last,
                         "nat_a5": national_5,
+                        **(
+                            {
+                                column: daily_features[column].to_numpy()
+                                for column in daily_features
+                            }
+                            if daily_features is not None
+                            else {}
+                        ),
                         "Last Year": latest.reindex(station_ids).to_numpy(),
                         "30-Yr Avg": average_30.reindex(station_ids).to_numpy(),
                         "Linear Trend": trend.reindex(station_ids).to_numpy(),
@@ -305,12 +492,15 @@ def fit_predict_origin(
     if test.empty:
         raise ValueError(f"No forecast rows are available at origin {origin}")
 
+    feature_columns = [column for column in FEATURES if column in panel.columns]
+    if not feature_columns:
+        raise ValueError("No model features are available in the training panel")
     training_target = (train["y"] - train["a30"]).to_numpy()
     ridge = make_pipeline(
         SimpleImputer(strategy="median"),
         StandardScaler(),
         Ridge(alpha=config.ridge_alpha),
-    ).fit(train.loc[:, FEATURES], training_target)
+    ).fit(train.loc[:, feature_columns], training_target)
     lightgbm = lgb.LGBMRegressor(
         objective="l1",
         n_estimators=config.lightgbm_estimators,
@@ -324,10 +514,12 @@ def fit_predict_origin(
         random_state=config.random_state,
         verbosity=-1,
         n_jobs=1,
-    ).fit(train.loc[:, FEATURES], training_target)
+    ).fit(train.loc[:, feature_columns], training_target)
 
-    test["Ridge"] = test["a30"] + ridge.predict(test.loc[:, FEATURES])
-    test["LightGBM"] = test["a30"] + lightgbm.predict(test.loc[:, FEATURES])
+    test["Ridge"] = test["a30"] + ridge.predict(test.loc[:, feature_columns])
+    test["LightGBM"] = test["a30"] + lightgbm.predict(
+        test.loc[:, feature_columns]
+    )
     test["Half-Trend"] = 0.5 * (test["30-Yr Avg"] + test["Linear Trend"])
     test["Ensemble"] = (
         test["LightGBM"] + test["Ridge"] + test["Linear Trend"]

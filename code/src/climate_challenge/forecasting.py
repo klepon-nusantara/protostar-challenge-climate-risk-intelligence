@@ -10,6 +10,7 @@ from .config import DEFAULT_CONFIG
 from .evaluation import select_best_methods
 from .models.global_models import (
     GlobalModelConfig,
+    _daily_feature_matrices,
     build_panel,
     fit_predict_origin,
 )
@@ -100,15 +101,27 @@ def forecast_all_stations(
     use_sparse_fallback: bool = DEFAULT_CONFIG.forecast.use_sparse_fallback,
     minimum_valid_years: int = DEFAULT_CONFIG.forecast.minimum_valid_years,
     neighbors: int = DEFAULT_CONFIG.forecast.neighbor_count,
+    daily_observations: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     """Fit selected methods at the final origin and return station forecasts."""
 
     metadata = station_metadata(city_info)
     best_methods = select_best_methods(backtest)
     frames: list[pd.DataFrame] = []
+    daily_matrices: dict[str, pd.DataFrame] | None = None
     for metric in TARGET_COLUMNS:
         matrix = metric_matrix(cleaned, metric)
-        panel = build_panel(matrix, metadata, horizon, model_config)
+        if daily_observations is not None and daily_matrices is None:
+            daily_matrices = _daily_feature_matrices(
+                daily_observations, matrix.columns
+            )
+        panel = build_panel(
+            matrix,
+            metadata,
+            horizon,
+            model_config,
+            daily_feature_matrices=daily_matrices,
+        )
         predictions, _ = fit_predict_origin(panel, origin, model_config)
         predictions["metric"] = metric
         frames.append(predictions)
