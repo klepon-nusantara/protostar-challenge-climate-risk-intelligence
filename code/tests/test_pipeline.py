@@ -155,6 +155,56 @@ class CleaningAndEvaluationTests(unittest.TestCase):
             np.isfinite(forecast_rows.loc["US000000001", "regional_anomaly"])
         )
 
+    def test_daily_features_use_only_observations_through_each_origin(self) -> None:
+        annual, cities = make_dataset()
+        matrix = metric_matrix(clean_annual_indices(annual).data, "annual_avg_temp")
+        metadata = station_metadata(cities)
+        daily_rows = []
+        for station_id in matrix.columns:
+            for year in range(1981, 2012):
+                maximum = 90.0 if year == 2010 else 70.0
+                if year == 2011:
+                    maximum = 110.0
+                for month in (1, 7):
+                    daily_rows.append(
+                        {
+                            "ID": station_id,
+                            "Date": pd.Timestamp(year=year, month=month, day=15),
+                            "tmax": maximum,
+                            "tmin": maximum - 20,
+                            "prcp": 0.1,
+                        }
+                    )
+        daily = pd.DataFrame(daily_rows)
+        changed_future = daily.copy()
+        changed_future.loc[
+            changed_future["Date"].dt.year == 2011, ["tmax", "tmin", "prcp"]
+        ] = [1000.0, 900.0, 100.0]
+        config = GlobalModelConfig(first_origin=1989)
+
+        original_panel = build_panel(
+            matrix, metadata, horizon=1, config=config, daily_observations=daily
+        )
+        changed_panel = build_panel(
+            matrix,
+            metadata,
+            horizon=1,
+            config=config,
+            daily_observations=changed_future,
+        )
+        daily_columns = [
+            column for column in original_panel if column.startswith("daily_")
+        ]
+        self.assertTrue(daily_columns)
+        original = original_panel.loc[
+            original_panel["origin"] == 2010, daily_columns
+        ].reset_index(drop=True)
+        changed = changed_panel.loc[
+            changed_panel["origin"] == 2010, daily_columns
+        ].reset_index(drop=True)
+        pd.testing.assert_frame_equal(original, changed)
+        self.assertTrue(original["daily_djf_temp_a5"].gt(0).all())
+
     def test_backtest_and_final_submission_pipeline(self) -> None:
         annual, city_info = make_dataset()
         cleaned = clean_annual_indices(annual).data

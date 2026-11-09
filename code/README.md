@@ -34,6 +34,27 @@ python -m climate_challenge forecast
 2019–2025, and writes the filled challenge template to `submission.csv`.
 The notebooks are optional examples, not pipeline entry points.
 
+To extract daily observations and annual coverage/station tables from the
+manually supplied `data/7890488/` CSVs, run:
+
+```bash
+python -m climate_challenge.oot_eval.preprocessing
+```
+
+This writes historical `daily.parquet` and `coverage_and_stations.parquet`
+through 2018, plus corresponding `_oot` files starting in 2019. The `_oot`
+files are for analysis only and must not be used as forecast inputs. This
+command also writes the annual and station-period OOT files used by the fixed
+origin evaluation.
+
+When `data/daily.parquet` is present, backtesting and forecasting add daily
+features for seasonal temperature and precipitation, hot/cold/heavy-rain and
+wet-day frequencies, wet-day intensity, daily precipitation maxima, and dry
+spell length. They are recent five-year means relative to each station's
+trailing 30-year daily-derived baseline. `oot_eval` compares these features
+against the annual-only model using only daily observations through the 2018
+origin; 2019-onward daily data is never loaded for features.
+
 Adjust shared defaults in `src/climate_challenge/config.py`. This includes
 backtest origins and horizon, cleaning tolerance, model hyperparameters, and
 evaluation resampling, forecast fallback settings, and submission paths. CLI

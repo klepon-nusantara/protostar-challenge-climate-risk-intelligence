@@ -12,6 +12,16 @@ import pandas as pd
 DAILY_COLUMNS = ("Date", "tmax", "tmin", "prcp")
 OOT_START_DATE = pd.Timestamp("2019-01-01")
 OOT_START_YEAR = OOT_START_DATE.year
+REGULAR_END_DATE = OOT_START_DATE - pd.Timedelta(days=1)
+DAILY_OUTPUT_COLUMNS = ("ID", "Name", *DAILY_COLUMNS)
+COVERAGE_OUTPUT_COLUMNS = (
+    "ID",
+    "Name",
+    "Year",
+    "Days Both",
+    "Station Segment",
+    "Station Changes",
+)
 
 
 def _find_csv_directory(input_dir: Path) -> Path:
@@ -91,12 +101,13 @@ def _read_station_daily(path: Path) -> pd.DataFrame:
     return daily.sort_values("Date").set_index("Date")
 
 
-def _annualize_station(path: Path, city_info: pd.DataFrame) -> pd.DataFrame:
+def _annualize_station(
+    path: Path, city_info: pd.DataFrame, daily: pd.DataFrame
+) -> pd.DataFrame:
     station_id = path.stem
     station_rows = city_info.loc[city_info["ID"] == station_id]
     if station_rows.empty:
         raise ValueError(f"No city_info.csv metadata for station {station_id}")
-    daily = _read_station_daily(path)
     if daily.empty:
         raise ValueError(f"{path} contains no daily records")
 
@@ -142,11 +153,56 @@ def _annualize_station(path: Path, city_info: pd.DataFrame) -> pd.DataFrame:
     return annual
 
 
+def _coverage_and_stations(
+    daily: pd.DataFrame, city_info: pd.DataFrame
+) -> pd.DataFrame:
+    annual_coverage = (
+        daily.assign(
+            Year=daily["Date"].dt.year,
+            _both=daily["tmax"].notna() & daily["tmin"].notna(),
+        )
+        .groupby(["ID", "Year"], sort=True)["_both"]
+        .sum()
+    )
+    records: list[dict[str, object]] = []
+
+    for station_id, station_daily in daily.groupby("ID", sort=True):
+        station_metadata = city_info.loc[city_info["ID"] == station_id].sort_values(
+            "Stn.stDate"
+        )
+        if station_metadata.empty:
+            raise ValueError(f"No city_info.csv metadata for station {station_id}")
+
+        years = range(
+            int(station_daily["Date"].dt.year.min()),
+            int(station_daily["Date"].dt.year.max()) + 1,
+        )
+        starts = station_metadata["Stn.stDate"].reset_index(drop=True)
+        name = station_metadata["Name"].iloc[0]
+        for year in years:
+            year_end = pd.Timestamp(year=year, month=12, day=31)
+            year_start = pd.Timestamp(year=year, month=1, day=1)
+            segment = int(starts.le(year_end).sum())
+            changes = int(starts.iloc[1:].between(year_start, year_end).sum())
+            records.append(
+                {
+                    "ID": station_id,
+                    "Name": name,
+                    "Year": year,
+                    "Days Both": int(annual_coverage.get((station_id, year), 0)),
+                    "Station Segment": segment,
+                    "Station Changes": changes,
+                }
+            )
+
+    return pd.DataFrame.from_records(records, columns=COVERAGE_OUTPUT_COLUMNS)
+
+
 def preprocess_oot_eval(
     input_dir: str | Path = "data/7890488",
     output_dir: str | Path = "data",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Write only post-2018 station-year observations and station periods."""
+    """Write historical and post-2018 daily, coverage, and annual extracts."""
 
     csv_dir = _find_csv_directory(Path(input_dir))
     city_info = _read_city_info(csv_dir / "city_info.csv")
@@ -170,12 +226,31 @@ def preprocess_oot_eval(
             details.append(f"metadata IDs without station files: {missing_files[:5]}")
         raise ValueError("Station ID mismatch: " + "; ".join(details))
 
+    annual_tables = []
+    daily_tables = []
+    names = city_info.drop_duplicates("ID").set_index("ID")["Name"]
+    for path in station_files:
+        station_id = path.stem
+        daily = _read_station_daily(path)
+        if daily.empty:
+            raise ValueError(f"{path} contains no daily records")
+        daily_table = daily.reset_index()
+        daily_table.insert(0, "ID", station_id)
+        daily_table.insert(1, "Name", names.loc[station_id])
+        daily_tables.append(daily_table.loc[:, DAILY_OUTPUT_COLUMNS])
+        annual_tables.append(_annualize_station(path, city_info, daily))
+
     all_annual_indices = pd.concat(
-        [_annualize_station(path, city_info) for path in station_files],
-        ignore_index=True,
+        annual_tables, ignore_index=True
     ).sort_values(["ID", "Year"], ignore_index=True)
     if all_annual_indices.duplicated(["ID", "Year"]).any():
         raise ValueError("Preprocessing produced duplicate station/year rows")
+    all_daily = pd.concat(daily_tables, ignore_index=True).sort_values(
+        ["ID", "Date"], ignore_index=True
+    )
+    if all_daily.duplicated(["ID", "Date"]).any():
+        raise ValueError("Preprocessing produced duplicate station/date rows")
+    all_coverage = _coverage_and_stations(all_daily, city_info)
 
     annual_indices = all_annual_indices.loc[
         all_annual_indices["Year"] >= OOT_START_YEAR
@@ -196,8 +271,35 @@ def preprocess_oot_eval(
             f"No station metadata periods overlap {OOT_START_DATE.date()} onward"
         )
 
+    daily_regular = all_daily.loc[all_daily["Date"] <= REGULAR_END_DATE].reset_index(
+        drop=True
+    )
+    daily_oot = all_daily.loc[all_daily["Date"] >= OOT_START_DATE].reset_index(
+        drop=True
+    )
+    coverage_regular = all_coverage.loc[
+        all_coverage["Year"] < OOT_START_YEAR
+    ].reset_index(drop=True)
+    coverage_oot = all_coverage.loc[
+        all_coverage["Year"] >= OOT_START_YEAR
+    ].reset_index(drop=True)
+    if daily_regular.empty or daily_oot.empty:
+        raise ValueError("Daily data must include both pre-2019 and OOT observations")
+    if coverage_regular.empty or coverage_oot.empty:
+        raise ValueError(
+            "Coverage data must include both pre-2019 and OOT station-years"
+        )
+
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
+    daily_regular.to_parquet(output_path / "daily.parquet", index=False)
+    daily_oot.to_parquet(output_path / "daily_oot.parquet", index=False)
+    coverage_regular.to_parquet(
+        output_path / "coverage_and_stations.parquet", index=False
+    )
+    coverage_oot.to_parquet(
+        output_path / "coverage_and_stations_oot.parquet", index=False
+    )
     annual_indices.to_parquet(output_path / "annual_indices_oot.parquet", index=False)
     city_info_oot.to_parquet(output_path / "city_info_oot.parquet", index=False)
     return annual_indices, city_info_oot
@@ -214,9 +316,11 @@ def main() -> None:
     annual, city_info = preprocess_oot_eval(args.input_dir, args.output_dir)
     years = annual["Year"]
     print(
-        f"Wrote annual_indices_oot.parquet ({len(annual):,} OOT station-years, "
+        f"Wrote daily.parquet, daily_oot.parquet, "
+        f"coverage_and_stations.parquet, coverage_and_stations_oot.parquet, "
+        f"annual_indices_oot.parquet ({len(annual):,} station-years, "
         f"{years.min()}-{years.max()}) and city_info_oot.parquet "
-        f"({len(city_info):,} OOT station-period rows) to {args.output_dir}."
+        f"({len(city_info):,} station-period rows) to {args.output_dir}."
     )
 
 

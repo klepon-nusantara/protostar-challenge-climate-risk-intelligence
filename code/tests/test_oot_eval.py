@@ -76,7 +76,90 @@ class OotPreprocessingTests(unittest.TestCase):
         )
         self.assertTrue((self.root / "data" / "city_info_oot.parquet").is_file())
 
+        data_dir = self.root / "data"
+        daily = pd.read_parquet(data_dir / "daily.parquet")
+        daily_oot = pd.read_parquet(data_dir / "daily_oot.parquet")
+        coverage = pd.read_parquet(data_dir / "coverage_and_stations.parquet")
+        coverage_oot = pd.read_parquet(
+            data_dir / "coverage_and_stations_oot.parquet"
+        )
+        self.assertEqual(
+            daily.columns.tolist(), ["ID", "Name", "Date", "tmax", "tmin", "prcp"]
+        )
+        self.assertEqual(daily["Date"].max(), pd.Timestamp("2018-12-31"))
+        self.assertEqual(daily_oot["Date"].min(), pd.Timestamp("2019-01-01"))
+        self.assertEqual(daily["Date"].tolist(), [pd.Timestamp("2018-12-31")])
+        self.assertEqual(
+            daily_oot["Date"].tolist(),
+            [
+                pd.Timestamp("2019-01-01"),
+                pd.Timestamp("2019-01-02"),
+                pd.Timestamp("2020-02-29"),
+            ],
+        )
+        self.assertEqual(
+            coverage.columns.tolist(),
+            [
+                "ID",
+                "Name",
+                "Year",
+                "Days Both",
+                "Station Segment",
+                "Station Changes",
+            ],
+        )
+        self.assertEqual(coverage[["Year", "Days Both"]].values.tolist(), [[2018, 1]])
+        self.assertEqual(
+            coverage_oot[["Year", "Days Both", "Station Segment", "Station Changes"]]
+            .values.tolist(),
+            [[2019, 1, 1, 0], [2020, 1, 2, 1]],
+        )
+
 class OotEvaluationTests(unittest.TestCase):
+    def test_daily_features_reject_observations_after_oot_origin(self) -> None:
+        historical = pd.DataFrame(
+            [
+                {
+                    "ID": "US000000001",
+                    "Name": "Example",
+                    "Year": 2018,
+                    "Miss Tmax": 0,
+                    "Miss Tmin": 0,
+                    "Miss Prcp": 0,
+                    "Avg Temp": 60.0,
+                    "ToT Prcp": 20.0,
+                    "Max Tmax": 90.0,
+                    "cdd": 50.0,
+                }
+            ]
+        )
+        oot = historical.assign(Year=2019)
+        daily = pd.DataFrame(
+            {
+                "ID": ["US000000001"],
+                "Date": [pd.Timestamp("2019-01-01")],
+                "tmax": [70.0],
+                "tmin": [50.0],
+                "prcp": [0.0],
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "after OOT origin 2018"):
+            run_oot_evaluation(
+                historical,
+                oot,
+                pd.DataFrame(
+                    {
+                        "ID": ["US000000001"],
+                        "Name": ["Example"],
+                        "Lat": [40.0],
+                        "Lon": [-80.0],
+                    }
+                ),
+                max_horizon=1,
+                daily_observations=daily,
+            )
+
     def test_run_log_appends_models_configuration_and_scores(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             log_path = Path(temporary_directory) / "oot_eval.log"

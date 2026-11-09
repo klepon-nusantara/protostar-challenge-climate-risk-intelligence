@@ -13,7 +13,7 @@ from ..backtesting import run_backtest
 from ..cleaning import TARGET_COLUMNS, clean_annual_indices
 from ..config import DEFAULT_CONFIG, MODEL_METHODS, GlobalModelConfig
 from ..evaluation import evaluate_backtest
-from ..models.global_models import FEATURES
+from ..models.global_models import BASE_FEATURES, DAILY_FEATURES
 
 OOT_ORIGIN = DEFAULT_CONFIG.forecast.origin
 OOT_MAX_HORIZON = DEFAULT_CONFIG.forecast.horizon
@@ -26,6 +26,7 @@ def run_oot_evaluation(
     origin: int = OOT_ORIGIN,
     max_horizon: int = OOT_MAX_HORIZON,
     model_config: GlobalModelConfig = DEFAULT_CONFIG.model,
+    daily_observations: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Evaluate every configured method at a fixed origin on later observations."""
 
@@ -45,6 +46,25 @@ def run_oot_evaluation(
         raise ValueError(
             f"OOT annual data must contain only years after origin {origin}"
         )
+    if daily_observations is not None:
+        required_daily_columns = {"Date"}
+        missing_daily_columns = required_daily_columns.difference(
+            daily_observations.columns
+        )
+        if missing_daily_columns:
+            raise ValueError(
+                "Daily observations are missing required columns: "
+                + ", ".join(sorted(missing_daily_columns))
+            )
+        daily_dates = pd.to_datetime(
+            daily_observations["Date"], errors="coerce"
+        )
+        if daily_dates.isna().any():
+            raise ValueError("Daily observations contain invalid dates")
+        if (daily_dates.dt.year > origin).any():
+            raise ValueError(
+                f"Daily feature data contains observations after OOT origin {origin}"
+            )
     annual_indices = pd.concat(
         [historical_annual_indices, oot_annual_indices], ignore_index=True
     )
@@ -71,6 +91,7 @@ def run_oot_evaluation(
         origins=[origin],
         horizon=horizon,
         model_config=model_config,
+        daily_observations=daily_observations,
     )
     scores = evaluate_backtest(backtest, by_horizon=True)
     if set(scores["method"]) != set(MODEL_METHODS):
@@ -86,6 +107,7 @@ def append_oot_run_log(
     origin: int,
     model_config: GlobalModelConfig = DEFAULT_CONFIG.model,
     input_paths: tuple[str | Path, ...] = (),
+    run_label: str | None = None,
 ) -> Path:
     """Append model settings, scored period, audit, and results to a run log."""
 
@@ -107,6 +129,13 @@ def append_oot_run_log(
         .groupby("metric", sort=True, as_index=False)
         .first()
     )
+    model_features = [
+        feature
+        for feature in (*BASE_FEATURES, *DAILY_FEATURES)
+        if feature in backtest.columns
+    ]
+    if not (set(model_features) - {"h"}):
+        model_features = list(BASE_FEATURES)
     log_file = Path(log_path)
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with log_file.open("a", encoding="utf-8") as output:
@@ -114,6 +143,8 @@ def append_oot_run_log(
         output.write(f"OOT evaluation run: {datetime.now().astimezone().isoformat()}\n")
         output.write(f"Origin: {origin}\n")
         output.write(f"Training data cutoff: {origin}\n")
+        if run_label:
+            output.write(f"Run variant: {run_label}\n")
         output.write(
             f"Scored period: {int(backtest['target_year'].min())}-"
             f"{int(backtest['target_year'].max())}\n"
@@ -130,7 +161,7 @@ def append_oot_run_log(
         )
         output.write(
             "Features used by Ridge and LightGBM: "
-            + ", ".join(FEATURES)
+            + ", ".join(model_features)
             + "\n"
         )
         output.write(

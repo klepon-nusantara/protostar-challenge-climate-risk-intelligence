@@ -1,8 +1,10 @@
 # Data card: `data/`
 
-Curated input tables used by the code in `code/`. Both tables are downloaded
-from the pinned revision of the challenge's training dataset by
-`python -m climate_challenge`.
+Curated tables used or prepared by the code in `code/`. The annual indices and
+city metadata are downloaded from the pinned revision of the challenge's
+training dataset by `python -m climate_challenge`. Daily observations and
+coverage tables are extracted from the raw station CSVs in `7890488/` by
+`python -m climate_challenge.oot_eval.preprocessing`.
 
 ## Files
 
@@ -10,12 +12,18 @@ from the pinned revision of the challenge's training dataset by
 |---|---|---|---|---|---|---|
 | `annual_indices.parquet` | Annual weather indices for the selected stations | [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), `annual_indices` | CC0-1.0 | 1851–2018 | Downloaded unchanged from revision `bbbdebdab2a18e00f97ef87bd3f35a71e222180b`; stored as Parquet | Forecast input |
 | `city_info.parquet` | Station names, IDs, coordinates, and station date ranges | [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), `city_info` | CC0-1.0 | Station metadata; weather observations are not included | Downloaded unchanged from revision `bbbdebdab2a18e00f97ef87bd3f35a71e222180b`; stored as Parquet | Forecast input / city metadata |
+| `daily.parquet` | Daily maximum/minimum temperature and precipitation by station | Lai & Dzombak (2019), `7890488/` station CSVs | CC0-1.0 | Through 2018-12-31 | Extracted unchanged, with station ID and name, and restricted to dates through the forecast cutoff | Historical feature exploration; not currently loaded by the forecasting pipeline |
+| `coverage_and_stations.parquet` | Annual count of days with both temperatures and station-segment/change counts | Derived from `daily.parquet` and `7890488/city_info.csv` | CC0-1.0 | Through 2018 | Counted complete temperature pairs by station-year; station segment and changes come from station-period start dates | Historical feature exploration; not currently loaded by the forecasting pipeline |
+| `daily_oot.parquet` | Daily weather observations by station | Lai & Dzombak (2019), `7890488/` station CSVs | CC0-1.0 | From 2019 onward, as available in the source files | Extracted unchanged, with station ID and name, and kept separate from historical data | Analysis only; never a forecast input |
+| `coverage_and_stations_oot.parquet` | Annual coverage and station-segment/change counts | Derived from OOT daily observations and `7890488/city_info.csv` | CC0-1.0 | From 2019 onward, as available in the source files | Same calculation as the historical table, restricted to years from 2019 onward | Analysis only; never a forecast input |
+| `annual_indices_oot.parquet`, `city_info_oot.parquet` | Annualized post-2018 evaluation targets and station periods | Derived from `7890488/` station CSVs and `city_info.csv` | CC0-1.0 | From 2019 onward, as available in the source files | Created by the OOT preprocessing command for fixed-origin evaluation | Analysis only; never a forecast input |
 
 ## How the files fit together
 
 - **Join key:** `ID` identifies the station in both tables.
 - **Units:** The annual table retains the source dataset's units and column names (for example, temperatures in °F, precipitation in inches, and `cdd` in °F-days).
 - **Known limitations:** The training data ends in 2018. Annual indices can contain missing values; inspect the `Miss ...` columns before modeling.
+- Daily and coverage tables are exported for feature exploration; adding them to a model requires a separate time-based backtest.
 
 ## Data rule check
 
