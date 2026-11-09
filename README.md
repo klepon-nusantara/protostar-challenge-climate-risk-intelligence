@@ -1,5 +1,5 @@
 ---
-pretty_name: "Protostar Climate Challenge Submission: <Team Name>"
+pretty_name: "Protostar Climate Challenge Submission: Klepon Nusantara"
 license: cc-by-4.0
 task_categories:
 - time-series-forecasting
@@ -14,59 +14,40 @@ configs:
     path: submission.csv
 ---
 
-> 📋 **This is the submission template** for the [Protostar Challenge: Climate Risk Intelligence](https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence). Copy it into your Hugging Face account, fill it in, and **delete this box** when you are done.
->
-> 1. **Copy:** `hf download CMU-OSPO/protostar-climate-submission-template --repo-type dataset --local-dir my-submission`, then `hf upload <your-name>/<dataset-name> my-submission . --repo-type dataset` (or create a new dataset on the Hub and upload these files).
-> 2. **Fill in** the `predicted_value` column of `submission.csv`: the city, year and metric of all 5,880 rows (210 cities × 7 years × 4 metrics) are already there. Check it with `python code/check_submission.py`.
-> 3. **Replace** every `<...>` placeholder in this README, including `<Team Name>` in the header.
-> 4. **Add** your notebooks or scripts to `code/`, and the curated data they use to `data/`: together they should reproduce `submission.csv`. Fill in the data card in `data/README.md`. If you use an AI agent, start from `code/AGENTS.md`.
-> 5. **Make the dataset public** and paste its link in the *Submission* tab of the challenge Space.
->
-> Keep the tag `protostar-climate-2026` in the header: it is how submissions are found.
+# Klepon Nusantara: Protostar Climate Challenge Submission
 
-# <Team Name>: Protostar Climate Challenge Submission
-
-**Negative result:** no <!-- Write "yes" if your main finding is why reuse or reproduction did not work. -->
+**Negative result:** no
 
 Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end of 2018 (no data that reveals 2019–2025 weather), for the [Protostar Challenge: Climate Risk Intelligence](https://huggingface.co/spaces/CMU-OSPO/protostar-challenge-climate-risk-intelligence).
 
 ## Team
 
-| Name | Hugging Face username | University, Program |
+| Name | Hugging Face username | Affiliation |
 |---|---|---|
-| <Name> | <@username> | <e.g., Carnegie Mellon University, Heinz MSPPM> |
+| Ardacandra Subiantoro | `ardacandrasubiantoro` | Superbank |
+| Bima Priambodo Wahyu Rianto | `bimapriambodo` | Superbank |
+| Rizkiyana Putra | `rizkiyanapp` | Superbank |
 
 ## Method
 
-<!-- A few lines: what model you used, which features, and how you checked it (e.g., trained up to 2010, tested on 2011–2018). -->
-
-- **Model:** <e.g., 10-year average plus a linear trend, per city>
-- **Features:** <e.g., the last 30 years of each metric>
-- **How we checked it:** <e.g., practice run on 2011–2018: CDD MAE = ... °F-days>
+- **Model:** Global Ridge and LightGBM models predict each station's deviation from its trailing 30-year mean. Per-metric model selection uses pooled MAE from rolling-origin backtests.
+- **Features:** Trailing 5- and 10-year averages relative to the 30-year baseline, 30-year and 10-year trends, trend acceleration, missing-history age, station coordinates, neighboring-station anomaly, regional anomaly, and one-hot region indicators.
+- **How we checked it:** Rolling-origin backtests use origins from 1995 through 2011, predicting up to seven years ahead and scoring against observations through 2018. The selected method is chosen separately for each metric. Run `python -m climate_challenge backtest` to reproduce the scores.
 
 ## AI Tools and Agents
 
-<!-- List every LLM or agent you used, or write "none". AI tools may write code and help with text; they may not produce forecast values (see the FAQ in the challenge's Data & submission tab). For ideas on documenting LLM and agent use: https://guides.library.cmu.edu/LLMDocumentationGuide -->
-
-- **Tools and models:** <none, or e.g., Claude Code (Claude Sonnet 5.5), ChatGPT (GPT-…)>
-- **What they did:** <e.g., wrote the data-loading code, ran the backtests, drafted the README>
-- **What a person reviewed:** <e.g., every download, all model code, the final numbers>
-- **Agent instructions file:** <e.g., code/AGENTS.md, or none>
+- **Tools and models:** Copilot in VS Code.
+- **What they did:** Helped inspect exploratory notebooks, implement model-feature code, and run tests. It did not generate forecast values.
+- **What a person reviewed:** A team member reviewed code changes and outputs.
+- **Agent instructions file:** [`code/AGENTS.md`](code/AGENTS.md).
 
 ## Policy Idea
 
-<!-- Half a page at most. Answer the three questions however you like. -->
-
-1. **What risk did we notice?** <...>
-2. **What would we do about it, and who would do it?** <...>
-3. **Why is it sustainable?** <...>
+To be completed by the team.
 
 ## Feedback to the Ecosystem
 
-<!-- What got in the way, and what would fix it: data, metadata, documentation, licensing, tools, infrastructure, policy. Be specific. -->
-
-- **What got in the way:** <...>
-- **What would fix it:** <...>
+To be completed by the team.
 
 ## Files
 
@@ -114,9 +95,9 @@ python code/check_submission.py
 
 ## Submit to Hugging Face
 
-Before submitting, replace the placeholders in this README, remove the template
-instructions at the top, and make sure `submission.csv` contains the forecasts
-you intend to submit. Validate it from the repository root:
+Before submitting, make sure `submission.csv` contains the forecasts you intend
+to submit and complete the policy idea and ecosystem feedback sections. Validate
+it from the repository root:
 
 ```bash
 python code/check_submission.py
@@ -157,9 +138,7 @@ version at submission time; submit again after any changes you want counted.
 
 ## Data
 
-<!-- List every external source (name, link, years used) and say whether it was used for the forecasts or only for the analysis and policy idea. Forecast inputs: weather records up to 2018-12-31, and data from any year that does not respond to the weather. -->
-
-- **External data:** <none, or: name, link, years, forecast or analysis>
+- **External data:** No additional external data was used. Forecast inputs come from the challenge's training dataset and end in 2018.
 - **Curated data:** see the data card in [`data/README.md`](data/README.md) (each file, its source, license and preparation).
 
 Training data: [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), from:
