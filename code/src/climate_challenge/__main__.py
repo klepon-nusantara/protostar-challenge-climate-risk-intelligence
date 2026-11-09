@@ -13,6 +13,12 @@ from .config import DEFAULT_CONFIG
 from .data import FORECAST_CUTOFF, PreparedDataset, prepare_dataset
 from .evaluation import evaluate_backtest
 from .forecasting import forecast_all_stations
+from .oot_eval import (
+    OOT_MAX_HORIZON,
+    OOT_ORIGIN,
+    append_oot_run_log,
+    run_oot_evaluation,
+)
 from .submission import write_submission
 
 
@@ -63,6 +69,13 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(DEFAULT_CONFIG.submission.output_path),
     )
 
+    oot_parser = commands.add_parser(
+        "oot_eval",
+        help="evaluate every model at the fixed 2018 origin on later observations",
+    )
+    oot_parser.add_argument(
+        "--data-dir", type=Path, default=Path("data")
+    )
     return parser
 
 
@@ -81,6 +94,51 @@ def main() -> None:
             f"city_info: {len(prepared.city_info):,} rows)."
         )
         print(f"Parquet files are stored in {prepared.data_dir}.")
+        return
+
+    if command == "oot_eval":
+        historical_path = args.data_dir / "annual_indices.parquet"
+        oot_annual_path = args.data_dir / "annual_indices_oot.parquet"
+        city_info_path = args.data_dir / "city_info.parquet"
+        missing_paths = [
+            path
+            for path in (historical_path, oot_annual_path, city_info_path)
+            if not path.is_file()
+        ]
+        if missing_paths:
+            parser.error(
+                "missing OOT Parquet input(s): "
+                + ", ".join(str(path) for path in missing_paths)
+                + "; first run python -m climate_challenge.oot_eval.preprocessing"
+            )
+        historical_annual_indices = pd.read_parquet(historical_path)
+        oot_annual_indices = pd.read_parquet(oot_annual_path)
+        city_info = pd.read_parquet(city_info_path)
+        backtest, scores, audit = run_oot_evaluation(
+            historical_annual_indices,
+            oot_annual_indices,
+            city_info,
+            origin=OOT_ORIGIN,
+            max_horizon=OOT_MAX_HORIZON,
+        )
+        repository_root = Path(__file__).resolve().parents[3]
+        log_path = append_oot_run_log(
+            repository_root / "oot_eval.log",
+            backtest,
+            scores,
+            audit,
+            origin=OOT_ORIGIN,
+            input_paths=(historical_path, oot_annual_path, city_info_path),
+        )
+        print("OOT data quality audit:")
+        print(audit.to_string())
+        print(
+            f"Fixed origin: {OOT_ORIGIN}; evaluated up to "
+            f"{int(backtest['target_year'].max())} "
+            f"({int(backtest['h'].max())} observed forecast leads)."
+        )
+        print(scores.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+        print(f"Appended run details to {log_path}.")
         return
 
     if args.start_origin > args.end_origin:
