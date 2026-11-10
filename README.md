@@ -31,13 +31,13 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end
 ## Method
 
 - **Model:** Global Ridge and LightGBM models predict each station's deviation from its trailing 30-year mean. Per-metric model selection uses pooled MAE from rolling-origin backtests.
-- **Features:** Trailing 5- and 10-year averages relative to the 30-year baseline, 30-year and 10-year trends, trend acceleration, missing-history age, station coordinates, neighboring-station anomaly, regional anomaly, and one-hot region indicators.
+- **Features:** Trailing 5- and 10-year averages relative to the 30-year baseline, 30-year and 10-year trends, trend acceleration, missing-history age, station coordinates, neighboring-station anomaly, regional anomalies, and one-hot region indicators. The OOT/forecast models additionally use nearest-coast distance and climate-division peer anomalies for hottest-day temperature; other static features were excluded after their OOT MAE failed to improve.
 - **How we checked it:** Rolling-origin backtests use origins from 1995 through 2011, predicting up to seven years ahead and scoring against observations through 2018. The selected method is chosen separately for each metric. Run `python -m climate_challenge backtest` to reproduce the scores.
 
 ## AI Tools and Agents
 
 - **Tools and models:** Copilot in VS Code.
-- **What they did:** Helped inspect exploratory notebooks, implement model-feature code, add the cached elevation download, and run tests. It did not generate forecast values.
+- **What they did:** Helped inspect exploratory notebooks, implement model features from cached static geography, and run OOT evaluations and tests. It did not generate forecast values.
 - **What a person reviewed:** A team member reviewed code changes and outputs.
 - **Agent instructions file:** [`code/AGENTS.md`](code/AGENTS.md).
 
@@ -90,7 +90,8 @@ It also spatially joins stations with the supplied NOAA climate division
 shapefile if `data/city_climate_divisions.parquet` is absent, and calculates
 nearest-coast distances from `data/ne_10m_coastline.zip` if
 `data/city_coastline_distances.parquet` is absent. The results are cached as
-Parquet and are not currently model inputs. `backtest` compares methods using
+Parquet. The OOT and forecast workflows join these tables to station metadata
+and apply target-specific static features. `backtest` compares methods using
 rolling time-based origins. `forecast` repeats the backtest for method
 selection, forecasts 2019–2025, and fills the submission template. To validate
 the generated submission independently, run:
@@ -149,7 +150,7 @@ version at submission time; submit again after any changes you want counted.
 
 ## Data
 
-- **External data:** Station elevation metadata is queried from the [Open-Elevation API](https://api.open-elevation.com/api/v1/lookup). Climate division boundaries are from [NOAA NCEI](https://www.ncei.noaa.gov/monitoring-content/data/us/climdiv/monthly/current/), and coastline data is from [Natural Earth](https://www.naturalearthdata.com/downloads/10m-physical-vectors/). Derived static geographic tables are cached during `prepare` and are not currently used by the forecasting models. Weather forecast inputs come from the challenge's training dataset and end in 2018.
+- **External data:** Station elevation metadata is queried from the [Open-Elevation API](https://api.open-elevation.com/api/v1/lookup). Climate division boundaries are from [NOAA NCEI](https://www.ncei.noaa.gov/monitoring-content/data/us/climdiv/monthly/current/), and coastline data is from [Natural Earth](https://www.naturalearthdata.com/downloads/10m-physical-vectors/). Derived geography features are static metadata; all weather-derived group anomalies use observations through the forecast origin. Weather forecast inputs come from the challenge's training dataset and end in 2018.
 - **Curated data:** see the data card in [`data/README.md`](data/README.md) (each file, its source, license and preparation).
 
 Training data: [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), from:

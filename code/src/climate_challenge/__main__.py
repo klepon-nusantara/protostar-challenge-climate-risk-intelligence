@@ -9,8 +9,18 @@ import pandas as pd
 
 from .backtesting import append_backtest_run_log, run_backtest
 from .cleaning import CleaningResult, clean_annual_indices
-from .config import DEFAULT_CONFIG, FORECAST_FEATURES, FORECAST_METHODS
-from .data import FORECAST_CUTOFF, PreparedDataset, prepare_dataset
+from .config import (
+    DEFAULT_CONFIG,
+    FORECAST_FEATURES,
+    FORECAST_METHODS,
+    STATIC_FEATURES_BY_METRIC,
+)
+from .data import (
+    FORECAST_CUTOFF,
+    PreparedDataset,
+    add_static_city_features,
+    prepare_dataset,
+)
 from .evaluation import evaluate_backtest
 from .forecasting import forecast_all_stations
 from .oot_eval import (
@@ -24,6 +34,12 @@ from .submission import write_submission
 
 def _load_clean_data() -> tuple[PreparedDataset, CleaningResult, pd.DataFrame | None]:
     prepared = prepare_dataset()
+    prepared.city_info = add_static_city_features(
+        prepared.city_info,
+        prepared.elevation,
+        prepared.city_climate_divisions,
+        prepared.city_coastline_distances,
+    )
     cleaned = clean_annual_indices(prepared.annual_indices)
     print("Data quality audit:")
     print(cleaned.audit.to_string())
@@ -117,6 +133,9 @@ def main() -> None:
         oot_annual_path = args.data_dir / "annual_indices_oot.parquet"
         city_info_path = args.data_dir / "city_info.parquet"
         daily_path = args.data_dir / "daily.parquet"
+        elevation_path = args.data_dir / "elevation.parquet"
+        divisions_path = args.data_dir / "city_climate_divisions.parquet"
+        coastline_distances_path = args.data_dir / "city_coastline_distances.parquet"
         missing_paths = [
             path
             for path in (
@@ -124,6 +143,9 @@ def main() -> None:
                 oot_annual_path,
                 city_info_path,
                 daily_path,
+                elevation_path,
+                divisions_path,
+                coastline_distances_path,
             )
             if not path.is_file()
         ]
@@ -131,11 +153,17 @@ def main() -> None:
             parser.error(
                 "missing OOT Parquet input(s): "
                 + ", ".join(str(path) for path in missing_paths)
-                + "; first run python -m climate_challenge.oot_eval.preprocessing"
+                + "; first run python -m climate_challenge prepare and "
+                "python -m climate_challenge.oot_eval.preprocessing"
             )
         historical_annual_indices = pd.read_parquet(historical_path)
         oot_annual_indices = pd.read_parquet(oot_annual_path)
-        city_info = pd.read_parquet(city_info_path)
+        city_info = add_static_city_features(
+            pd.read_parquet(city_info_path),
+            pd.read_parquet(elevation_path),
+            pd.read_parquet(divisions_path),
+            pd.read_parquet(coastline_distances_path),
+        )
         daily_observations = pd.read_parquet(daily_path)
         backtest, scores, audit = run_oot_evaluation(
             historical_annual_indices,
@@ -144,6 +172,7 @@ def main() -> None:
             origin=OOT_ORIGIN,
             max_horizon=OOT_MAX_HORIZON,
             daily_observations=daily_observations,
+            static_features_by_metric=STATIC_FEATURES_BY_METRIC,
         )
         repository_root = Path(__file__).resolve().parents[3]
         results_directory = repository_root / "results" / "oot_eval"
@@ -158,11 +187,16 @@ def main() -> None:
                 oot_annual_path,
                 city_info_path,
                 daily_path,
+                elevation_path,
+                divisions_path,
+                coastline_distances_path,
             ),
-            run_label="annual + daily features",
+            run_label="annual + daily + static geographic features",
         )
         predictions_path = results_directory / "predictions.csv"
-        backtest.assign(run_label="annual + daily features").loc[
+        backtest.assign(
+            run_label="annual + daily + static geographic features"
+        ).loc[
             :,
             lambda frame: [
                 column for column in frame if not column.startswith("_raw_")
@@ -176,7 +210,7 @@ def main() -> None:
             f"({int(backtest['h'].max())} observed forecast leads)."
         )
         print(scores.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
-        print(f"Appended annual + daily feature run to {log_path}.")
+        print(f"Appended annual, daily, and static feature run to {log_path}.")
         print(f"Wrote OOT predictions to {predictions_path}.")
         return
 
@@ -212,6 +246,7 @@ def main() -> None:
             daily_observations=daily_observations,
             methods_by_metric=FORECAST_METHODS,
             feature_columns=FORECAST_FEATURES,
+            static_features_by_metric=STATIC_FEATURES_BY_METRIC,
         )
         forecasts, selected_methods = forecast_all_stations(
             cleaned,
@@ -221,6 +256,7 @@ def main() -> None:
             daily_observations=daily_observations,
             selected_methods=FORECAST_METHODS,
             feature_columns=FORECAST_FEATURES,
+            static_features_by_metric=STATIC_FEATURES_BY_METRIC,
         )
         submission = write_submission(forecasts, args.template, args.output)
         print(f"Selected methods by metric: {selected_methods}")
@@ -233,6 +269,7 @@ def main() -> None:
         origins=origins,
         horizon=args.horizon,
         daily_observations=daily_observations,
+        static_features_by_metric=STATIC_FEATURES_BY_METRIC,
     )
     scores = evaluate_backtest(backtest)
     if command == "backtest":

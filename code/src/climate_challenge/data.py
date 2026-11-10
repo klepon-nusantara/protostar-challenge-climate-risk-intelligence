@@ -465,6 +465,37 @@ def _load_city_coastline_distances(
     return distances
 
 
+def add_static_city_features(
+    city_info: pd.DataFrame,
+    elevation: pd.DataFrame,
+    city_climate_divisions: pd.DataFrame,
+    city_coastline_distances: pd.DataFrame,
+) -> pd.DataFrame:
+    """Attach validated static geography fields to city metadata by station ID."""
+
+    required = {"ID"}
+    feature_tables = (
+        (elevation, {"elevation_m"}),
+        (city_climate_divisions, {"division_CLIMDIV", "division_STATE_FIPS"}),
+        (city_coastline_distances, {"distance_to_coast_km"}),
+    )
+    result = city_info.copy()
+    result["ID"] = result["ID"].astype("string")
+    for table, columns in feature_tables:
+        _validate_columns(table, required | columns, "static city features")
+        features = table.loc[:, ["ID", *sorted(columns)]].copy()
+        features["ID"] = features["ID"].astype("string")
+        if features["ID"].isna().any() or features["ID"].duplicated().any():
+            raise ValueError("Static city features contain missing or duplicate IDs")
+        result = result.merge(
+            features,
+            on="ID",
+            how="left",
+            validate="many_to_one",
+        )
+    return result
+
+
 def prepare_dataset(
     additional_sources: Iterable[DataSource] = (),
     cutoff: str | pd.Timestamp = FORECAST_CUTOFF,

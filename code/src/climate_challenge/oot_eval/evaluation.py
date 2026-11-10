@@ -27,6 +27,7 @@ def run_oot_evaluation(
     max_horizon: int = OOT_MAX_HORIZON,
     model_config: GlobalModelConfig = DEFAULT_CONFIG.model,
     daily_observations: pd.DataFrame | None = None,
+    static_features_by_metric: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
     """Score raw and pre-origin-calibrated methods on later observations."""
 
@@ -112,6 +113,7 @@ def run_oot_evaluation(
             horizon=calibration_horizon,
             model_config=model_config,
             daily_observations=daily_observations,
+            static_features_by_metric=static_features_by_metric,
         )
         if calibration_origins
         else pd.DataFrame()
@@ -124,6 +126,7 @@ def run_oot_evaluation(
         model_config=model_config,
         daily_observations=daily_observations,
         calibration_predictions=calibration_predictions,
+        static_features_by_metric=static_features_by_metric,
     )
     scores = evaluate_backtest(backtest, by_horizon=True)
     if set(scores["method"]) != set(MODEL_METHODS):

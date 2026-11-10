@@ -126,8 +126,20 @@ def station_metadata(city_info: pd.DataFrame) -> pd.DataFrame:
     metadata = city_info.dropna(subset=["ID", "Lat", "Lon"]).copy()
     metadata["Lat"] = pd.to_numeric(metadata["Lat"], errors="coerce")
     metadata["Lon"] = pd.to_numeric(metadata["Lon"], errors="coerce")
-    return (
-        metadata.dropna(subset=["Lat", "Lon"])
-        .drop_duplicates("ID")
-        .set_index("ID")[["Name", "Lat", "Lon"]]
-    )
+    metadata = metadata.dropna(subset=["Lat", "Lon"])
+    static_columns = [
+        column
+        for column in (
+            "elevation_m",
+            "distance_to_coast_km",
+            "division_CLIMDIV",
+            "division_STATE_FIPS",
+        )
+        if column in metadata.columns
+    ]
+    for column in static_columns:
+        if metadata.groupby("ID", dropna=False)[column].nunique(dropna=False).gt(1).any():
+            raise ValueError(f"city_info has inconsistent {column} by station ID")
+    return metadata.drop_duplicates("ID").set_index("ID")[
+        ["Name", "Lat", "Lon", *static_columns]
+    ]

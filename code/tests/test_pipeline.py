@@ -18,7 +18,9 @@ from climate_challenge.models.global_models import (
     GlobalModelConfig,
     _daily_feature_matrices,
     _daily_features_at_origin,
+    _group_anomaly,
     build_panel,
+    feature_columns_for_metric,
 )
 from climate_challenge.submission import (
     assemble_submission,
@@ -64,6 +66,32 @@ def make_dataset() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 class CleaningAndEvaluationTests(unittest.TestCase):
+    def test_metric_feature_selection_adds_only_configured_static_features(self) -> None:
+        static_features = {
+            "annual_avg_temp": ("elevation_m", "distance_to_coast_km"),
+            "cdd": ("state_anomaly",),
+            "total_precip_in": (),
+        }
+
+        temperature_features = feature_columns_for_metric(
+            "annual_avg_temp", ("ly_a", "elevation_m"), static_features
+        )
+        cdd_features = feature_columns_for_metric(
+            "cdd", ("ly_a", "elevation_m"), static_features
+        )
+        precipitation_features = feature_columns_for_metric(
+            "total_precip_in", ("ly_a", "elevation_m"), static_features
+        )
+
+        self.assertEqual(
+            temperature_features,
+            ("ly_a", "elevation_m", "distance_to_coast_km"),
+        )
+        self.assertEqual(cdd_features, ("ly_a", "state_anomaly"))
+        self.assertEqual(precipitation_features, ("ly_a",))
+        with self.assertRaisesRegex(ValueError, "No static feature selection configured"):
+            feature_columns_for_metric("hottest_day_temp", ("ly_a",), static_features)
+
     def test_lead_calibration_uses_historical_bias_by_metric_and_lead(self) -> None:
         calibration = pd.DataFrame(
             {
@@ -280,6 +308,45 @@ class CleaningAndEvaluationTests(unittest.TestCase):
         self.assertTrue(
             np.isfinite(forecast_rows.loc["US000000001", "regional_anomaly"])
         )
+
+    def test_static_geography_features_enter_model_panel(self) -> None:
+        annual, cities = make_dataset()
+        cleaned = clean_annual_indices(annual).data
+        matrix = metric_matrix(cleaned, "annual_avg_temp")
+        metadata = station_metadata(cities)
+        metadata["elevation_m"] = np.arange(len(metadata), dtype=float) * 100
+        metadata["distance_to_coast_km"] = np.arange(len(metadata), dtype=float) * 10
+        metadata["division_STATE_FIPS"] = ["01", "01", "02", "02", "03", "03"]
+        metadata["division_CLIMDIV"] = ["0101", "0101", "0201", "0201", "0301", "0301"]
+
+        panel = build_panel(
+            matrix,
+            metadata,
+            horizon=1,
+            config=GlobalModelConfig(first_origin=1989),
+        )
+        origin_rows = panel.loc[panel["origin"] == 2018].set_index("city_id")
+
+        self.assertEqual(origin_rows.loc["US000000002", "elevation_m"], 200.0)
+        self.assertEqual(
+            origin_rows.loc["US000000003", "distance_to_coast_km"], 30.0
+        )
+        self.assertIn("state_anomaly", origin_rows.columns)
+        self.assertIn("climate_division_anomaly", origin_rows.columns)
+
+    def test_group_anomaly_excludes_station_and_leaves_singletons_missing(self) -> None:
+        anomalies = pd.Series(
+            [1.0, 3.0, 7.0], index=["station_a", "station_b", "station_c"]
+        )
+        groups = pd.Series(
+            ["shared", "shared", "singleton"], index=anomalies.index
+        )
+
+        peer_anomalies = _group_anomaly(anomalies, groups)
+
+        self.assertEqual(peer_anomalies["station_a"], 3.0)
+        self.assertEqual(peer_anomalies["station_b"], 1.0)
+        self.assertTrue(pd.isna(peer_anomalies["station_c"]))
 
     def test_daily_features_use_only_observations_through_each_origin(self) -> None:
         annual, cities = make_dataset()

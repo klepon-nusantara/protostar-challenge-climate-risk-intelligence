@@ -47,7 +47,13 @@ backtests for only those configured methods, fits them through the 2018 origin,
 predicts 2019–2025, and writes the filled challenge template to `submission.csv`.
 It does not run a model-selection backtest. `FORECAST_FEATURES = None` uses all
 available features; set it to a tuple of feature names to restrict the feature
-list. Forecast methods are configured separately by target metric. Lead
+list. `STATIC_FEATURES_BY_METRIC` then selects the static geography features
+used for each target; the same mapping is used by `backtest` and `oot_eval`.
+The configured selection uses coast distance and climate-division peer
+anomalies for hottest-day temperature, and no static geography features for
+the other targets. This conservative selection retains the only measured
+improvement in the calibrated fixed-origin OOT evaluation. Forecast methods are
+configured separately by target metric. Lead
 calibration is not applied to precipitation forecasts; precipitation is only
 clipped at zero to preserve the target's nonnegative domain.
 The notebooks are optional examples, not pipeline entry points.
@@ -74,6 +80,10 @@ features include recent five- and ten-year means relative to each station's
 trailing 30-year daily-derived baseline. `oot_eval` compares these features
 against the annual-only model using only daily observations through the 2018
 origin; 2019-onward daily data is never loaded for features.
+When the static Parquet tables are present, model panels can include elevation,
+distance to coast, and leave-one-out state and climate-division anomaly
+features. The configured workflows select these static features by target;
+the anomaly features use observations only through each model origin.
 
 Adjust shared defaults in `src/climate_challenge/config.py`. This includes
 forecast methods and features, backtest origins and horizon, cleaning tolerance,

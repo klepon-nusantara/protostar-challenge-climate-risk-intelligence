@@ -21,6 +21,7 @@ from .models.global_models import (
     DAILY_FEATURES,
     _daily_feature_matrices,
     build_panel,
+    feature_columns_for_metric,
     fit_predict_origin,
 )
 
@@ -38,6 +39,7 @@ def run_backtest(
     calibration_predictions: pd.DataFrame | None = None,
     methods_by_metric: dict[str, str] | None = None,
     feature_columns: tuple[str, ...] | None = None,
+    static_features_by_metric: dict[str, tuple[str, ...]] | None = None,
 ) -> pd.DataFrame:
     """Replay origins and score prior-origin lead-calibrated predictions."""
 
@@ -87,6 +89,13 @@ def run_backtest(
             raise ValueError(
                 "unknown model method(s): " + ", ".join(sorted(invalid_methods))
             )
+    if static_features_by_metric is not None:
+        missing_metrics = set(TARGET_COLUMNS).difference(static_features_by_metric)
+        extra_metrics = set(static_features_by_metric).difference(TARGET_COLUMNS)
+        if missing_metrics or extra_metrics:
+            raise ValueError(
+                "static_features_by_metric must map every target metric exactly once"
+            )
 
     metadata = station_metadata(city_info)
     outputs: list[pd.DataFrame] = []
@@ -116,7 +125,9 @@ def run_backtest(
                 origin,
                 model_config,
                 methods=methods,
-                feature_columns=feature_columns,
+                feature_columns=feature_columns_for_metric(
+                    metric, feature_columns, static_features_by_metric
+                ),
             )
             predictions["metric"] = metric
             metric_outputs.append(predictions)

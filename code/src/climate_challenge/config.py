@@ -23,7 +23,16 @@ FORECAST_METHODS = {
     "hottest_day_temp": "Ridge",
     "total_precip_in": "LightGBM",
 }
-# None uses every available feature; set a tuple of feature names to restrict it.
+# Retain static features only for targets where the calibrated 2018 OOT
+# evaluation improved MAE. Empty tuples retain the annual/daily baseline.
+STATIC_FEATURES_BY_METRIC = {
+    "annual_avg_temp": ("distance_to_coast_km", "climate_division_anomaly"),
+    "cdd": ("distance_to_coast_km", "climate_division_anomaly"),
+    "hottest_day_temp": ("distance_to_coast_km", "climate_division_anomaly"),
+    "total_precip_in": ("distance_to_coast_km", "climate_division_anomaly"),
+}
+# None uses every available non-static feature; static features are selected
+# separately by STATIC_FEATURES_BY_METRIC in the configured workflows.
 FORECAST_FEATURES: tuple[str, ...] | None = None
 
 

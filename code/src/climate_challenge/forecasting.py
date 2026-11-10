@@ -17,6 +17,7 @@ from .models.global_models import (
     GlobalModelConfig,
     _daily_feature_matrices,
     build_panel,
+    feature_columns_for_metric,
     fit_predict_origin,
 )
 
@@ -109,6 +110,7 @@ def forecast_all_stations(
     daily_observations: pd.DataFrame | None = None,
     selected_methods: dict[str, str] = FORECAST_METHODS,
     feature_columns: tuple[str, ...] | None = FORECAST_FEATURES,
+    static_features_by_metric: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     """Fit configured methods at the final origin and return station forecasts."""
 
@@ -141,7 +143,9 @@ def forecast_all_stations(
             origin,
             model_config,
             methods=(method,),
-            feature_columns=feature_columns,
+            feature_columns=feature_columns_for_metric(
+                metric, feature_columns, static_features_by_metric
+            ),
         )
         predictions["metric"] = metric
         frames.append(predictions)

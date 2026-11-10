@@ -29,10 +29,20 @@ BASE_FEATURES = (
     *(f"region_{region}" for region in REGIONS),
     "lat",
     "lon",
+    "elevation_m",
+    "distance_to_coast_km",
+    "state_anomaly",
+    "climate_division_anomaly",
     "h",
     "a30",
     "nat_ly",
     "nat_a5",
+)
+STATIC_FEATURES = (
+    "elevation_m",
+    "distance_to_coast_km",
+    "state_anomaly",
+    "climate_division_anomaly",
 )
 DAILY_SUMMARY_COLUMNS = (
     *(f"{season}_temp" for season in ("djf", "mam", "jja", "son")),
@@ -66,6 +76,30 @@ DAILY_FEATURES += tuple(
     f"daily_{column}_a10" for column in DAILY_PRECIPITATION_COLUMNS
 )
 FEATURES = (*BASE_FEATURES, *DAILY_FEATURES)
+
+
+def feature_columns_for_metric(
+    metric: str,
+    feature_columns: tuple[str, ...] | None,
+    static_features_by_metric: dict[str, tuple[str, ...]] | None,
+) -> tuple[str, ...] | None:
+    """Apply a target-specific static feature selection to model features."""
+
+    if static_features_by_metric is None:
+        return feature_columns
+    if metric not in static_features_by_metric:
+        raise ValueError(f"No static feature selection configured for {metric}")
+    selected_static = static_features_by_metric[metric]
+    unknown_features = set(selected_static).difference(STATIC_FEATURES)
+    if unknown_features:
+        raise ValueError(
+            "unknown static feature(s): " + ", ".join(sorted(unknown_features))
+        )
+    requested_features = FEATURES if feature_columns is None else feature_columns
+    base_features = tuple(
+        feature for feature in requested_features if feature not in STATIC_FEATURES
+    )
+    return (*base_features, *selected_static)
 
 
 def _daily_feature_matrices(
@@ -276,6 +310,26 @@ def _regional_anomaly(
     return result
 
 
+def _group_anomaly(
+    anomalies: pd.Series,
+    groups: pd.Series,
+    minimum_peers: int = 1,
+) -> pd.Series:
+    """Return each station's group peer mean, excluding its own anomaly."""
+
+    result = pd.Series(np.nan, index=anomalies.index, dtype=float)
+    aligned_groups = groups.reindex(anomalies.index)
+    for group in aligned_groups.dropna().unique():
+        station_ids = aligned_groups.index[aligned_groups.eq(group)]
+        values = anomalies.reindex(station_ids)
+        peer_count = values.notna().sum() - values.notna().astype(int)
+        peer_total = values.fillna(0.0).sum() - values.fillna(0.0)
+        result.loc[station_ids] = peer_total.div(
+            peer_count.where(peer_count >= minimum_peers)
+        )
+    return result
+
+
 def _window_slope(
     matrix: pd.DataFrame,
     station_ids: pd.Index,
@@ -377,6 +431,22 @@ def build_panel(
         },
         index=station_ids,
     )
+    static_features: dict[str, pd.Series] = {}
+    for column in ("elevation_m", "distance_to_coast_km"):
+        if column in coordinates:
+            static_features[column] = pd.to_numeric(
+                coordinates[column], errors="coerce"
+            ).reindex(station_ids)
+    division_groups = (
+        coordinates["division_CLIMDIV"].astype("string")
+        if "division_CLIMDIV" in coordinates
+        else None
+    )
+    state_groups = (
+        coordinates["division_STATE_FIPS"].astype("string")
+        if "division_STATE_FIPS" in coordinates
+        else None
+    )
 
     final_observed_year = int(matrix.index.max())
     first_origin = max(
@@ -432,6 +502,16 @@ def build_panel(
             coordinates,
         )
         regional_anomaly = _regional_anomaly(anomalies, regions)
+        state_anomaly = (
+            _group_anomaly(anomalies, state_groups)
+            if state_groups is not None
+            else None
+        )
+        climate_division_anomaly = (
+            _group_anomaly(anomalies, division_groups)
+            if division_groups is not None
+            else None
+        )
         national_last = anomalies.mean()
         national_5 = (average_5 - average_30).mean()
         daily_features = (
@@ -481,6 +561,23 @@ def build_panel(
                         },
                         "lat": metadata.reindex(station_ids)["Lat"].to_numpy(),
                         "lon": metadata.reindex(station_ids)["Lon"].to_numpy(),
+                        **{
+                            name: values.to_numpy()
+                            for name, values in static_features.items()
+                        },
+                        **(
+                            {"state_anomaly": state_anomaly.to_numpy()}
+                            if state_anomaly is not None
+                            else {}
+                        ),
+                        **(
+                            {
+                                "climate_division_anomaly":
+                                    climate_division_anomaly.to_numpy()
+                            }
+                            if climate_division_anomaly is not None
+                            else {}
+                        ),
                         "nat_ly": national_last,
                         "nat_a5": national_5,
                         **(
