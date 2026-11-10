@@ -5,13 +5,21 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
 
-from climate_challenge.backtesting import append_backtest_run_log, run_backtest
+from climate_challenge.backtesting import (
+    apply_lead_calibration,
+    append_backtest_run_log,
+    run_backtest,
+)
 from climate_challenge.cleaning import clean_annual_indices, metric_matrix, station_metadata
-from climate_challenge.config import MODEL_METHODS
+from climate_challenge.config import FORECAST_METHODS, MODEL_METHODS
 from climate_challenge.evaluation import evaluate_backtest, select_best_methods
 from climate_challenge.forecasting import forecast_all_stations
-from climate_challenge.models.global_models import GlobalModelConfig
-from climate_challenge.models.global_models import build_panel
+from climate_challenge.models.global_models import (
+    GlobalModelConfig,
+    _daily_feature_matrices,
+    _daily_features_at_origin,
+    build_panel,
+)
 from climate_challenge.submission import (
     assemble_submission,
     validate_submission,
@@ -56,6 +64,66 @@ def make_dataset() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 class CleaningAndEvaluationTests(unittest.TestCase):
+    def test_lead_calibration_uses_historical_bias_by_metric_and_lead(self) -> None:
+        calibration = pd.DataFrame(
+            {
+                "origin": [2000, 2001, 2002, 2000],
+                "target_year": [2001, 2002, 2003, 2002],
+                "metric": ["annual_avg_temp"] * 4,
+                "h": [1, 1, 1, 2],
+                "y": [10.0, 20.0, 20.0, 10.0],
+                **{
+                    method: [10.0, 20.0, 20.0, 10.0]
+                    for method in MODEL_METHODS
+                },
+                "Last Year": [12.0, 24.0, 70.0, 17.0],
+            }
+        )
+        target = pd.DataFrame(
+            {
+                "metric": ["annual_avg_temp", "annual_avg_temp"],
+                "h": [1, 2],
+                **{
+                    method: [100.0, 200.0]
+                    for method in MODEL_METHODS
+                },
+            }
+        )
+
+        calibrated = apply_lead_calibration(target, calibration)
+
+        np.testing.assert_allclose(calibrated["Last Year"], [96.0, 193.0])
+        np.testing.assert_allclose(calibrated["_raw_Last Year"], [100.0, 200.0])
+
+    def test_lead_calibration_preserves_nonnegative_targets(self) -> None:
+        calibration = pd.DataFrame(
+            {
+                "origin": [2000],
+                "target_year": [2001],
+                "metric": ["total_precip_in"],
+                "h": [1],
+                "y": [1.0],
+                **{
+                    method: [4.0]
+                    for method in MODEL_METHODS
+                },
+            }
+        )
+        target = pd.DataFrame(
+            {
+                "metric": ["total_precip_in"],
+                "h": [1],
+                **{
+                    method: [2.0]
+                    for method in MODEL_METHODS
+                },
+            }
+        )
+
+        calibrated = apply_lead_calibration(target, calibration)
+
+        self.assertEqual(calibrated.loc[0, "Last Year"], 0.0)
+
     def test_backtest_run_log_appends_configuration_and_scores(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             log_path = Path(temporary_directory) / "backtest" / "backtest.log"
@@ -260,6 +328,44 @@ class CleaningAndEvaluationTests(unittest.TestCase):
         ].reset_index(drop=True)
         pd.testing.assert_frame_equal(original, changed)
         self.assertTrue(original["daily_djf_temp_a5"].gt(0).all())
+        self.assertIn("daily_jja_prcp_p95_a5", daily_columns)
+        self.assertIn("daily_jja_wet_fraction_a10", daily_columns)
+
+    def test_seasonal_precipitation_features_capture_tail_and_recent_change(self) -> None:
+        station_id = "US000000001"
+        daily = pd.DataFrame(
+            [
+                {
+                    "ID": station_id,
+                    "Date": pd.Timestamp(year=year, month=7, day=15),
+                    "tmax": 80.0,
+                    "tmin": 60.0,
+                    "prcp": 5.0 if year == 2010 else 0.0,
+                }
+                for year in range(1991, 2011)
+            ]
+        )
+        station_ids = pd.Index([station_id])
+        matrices = _daily_feature_matrices(daily, station_ids)
+
+        self.assertEqual(matrices["jja_prcp_p95"].loc[2010, station_id], 5.0)
+        self.assertEqual(matrices["jja_wet_fraction"].loc[2010, station_id], 1.0)
+        self.assertEqual(matrices["jja_wet_intensity"].loc[2010, station_id], 5.0)
+
+        features = _daily_features_at_origin(
+            matrices,
+            station_ids,
+            origin=2010,
+            config=GlobalModelConfig(
+                baseline_window=20,
+                average_5_years=5,
+            ),
+        )
+        self.assertGreater(features.loc[station_id, "daily_jja_prcp_a5"], 0.0)
+        self.assertGreater(features.loc[station_id, "daily_jja_prcp_a10"], 0.0)
+        self.assertGreater(
+            features.loc[station_id, "daily_jja_prcp_p95_a10"], 0.0
+        )
 
     def test_backtest_and_final_submission_pipeline(self) -> None:
         annual, city_info = make_dataset()
@@ -302,11 +408,37 @@ class CleaningAndEvaluationTests(unittest.TestCase):
         submission = assemble_submission(submission_forecasts, template)
 
         self.assertEqual(len(backtest), 6 * 4 * 7)
-        self.assertEqual(len(metrics), 4 * 7)
-        self.assertEqual(set(methods), set(selected))
+        self.assertEqual(len(metrics), 4 * len(MODEL_METHODS))
+        self.assertEqual(selected, FORECAST_METHODS)
         self.assertEqual(len(submission), 2 * 7 * 4)
         self.assertFalse(submission["predicted_value"].isna().any())
         validate_submission(submission, expected_city_ids=["US000000000", "US000000001"])
+
+    def test_selected_method_backtest_only_calibrates_configured_methods(self) -> None:
+        annual, city_info = make_dataset()
+        cleaned = clean_annual_indices(annual).data
+        backtest = run_backtest(
+            cleaned,
+            city_info,
+            origins=[2010],
+            horizon=7,
+            model_config=GlobalModelConfig(
+                first_origin=1989,
+                lightgbm_estimators=5,
+                lightgbm_min_child_samples=5,
+            ),
+            methods_by_metric=FORECAST_METHODS,
+            feature_columns=("ly_a",),
+        )
+
+        self.assertEqual(
+            {
+                column.removeprefix("_raw_")
+                for column in backtest
+                if column.startswith("_raw_")
+            },
+            set(FORECAST_METHODS.values()),
+        )
 
     def test_submission_rejects_negative_precipitation(self) -> None:
         submission = pd.DataFrame(

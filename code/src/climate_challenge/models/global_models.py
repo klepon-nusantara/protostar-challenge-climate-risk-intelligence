@@ -10,7 +10,7 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 
-from ..config import DEFAULT_CONFIG, GlobalModelConfig
+from ..config import BASE_MODEL_METHODS, DEFAULT_CONFIG, GlobalModelConfig
 from .baselines import recent_average, trend_coefficients
 
 REGIONS = ("midwest", "southern", "west_coast", "new_england", "other")
@@ -37,6 +37,11 @@ BASE_FEATURES = (
 DAILY_SUMMARY_COLUMNS = (
     *(f"{season}_temp" for season in ("djf", "mam", "jja", "son")),
     *(f"{season}_prcp" for season in ("djf", "mam", "jja", "son")),
+    *(
+        f"{season}_{feature}"
+        for season in ("djf", "mam", "jja", "son")
+        for feature in ("prcp_p95", "wet_fraction", "wet_intensity")
+    ),
     "hot_day_fraction",
     "cold_day_fraction",
     "heavy_rain_fraction",
@@ -47,6 +52,18 @@ DAILY_SUMMARY_COLUMNS = (
 )
 DAILY_FEATURES = tuple(
     f"daily_{column}_a5" for column in DAILY_SUMMARY_COLUMNS
+)
+DAILY_PRECIPITATION_COLUMNS = (
+    *(
+        f"{season}_{feature}"
+        for season in ("djf", "mam", "jja", "son")
+        for feature in ("prcp", "prcp_p95", "wet_fraction", "wet_intensity")
+    ),
+    "wet_day_fraction",
+    "wet_day_intensity",
+)
+DAILY_FEATURES += tuple(
+    f"daily_{column}_a10" for column in DAILY_PRECIPITATION_COLUMNS
 )
 FEATURES = (*BASE_FEATURES, *DAILY_FEATURES)
 
@@ -98,10 +115,17 @@ def _daily_feature_matrices(
             11: "son",
         }
     )
+    daily["_wet"] = (daily["prcp"] >= 0.01).astype(float).where(
+        daily["prcp"].notna()
+    )
+    daily["_wet_prcp"] = daily["prcp"].where(daily["prcp"] >= 0.01)
 
     seasonal = daily.groupby(["ID", "Year", "season"], sort=False).agg(
         temperature=("daily_mean_temp", "mean"),
         precipitation=("prcp", "mean"),
+        precipitation_p95=("prcp", lambda values: values.quantile(0.95)),
+        wet_fraction=("_wet", "mean"),
+        wet_intensity=("_wet_prcp", "mean"),
     )
     seasonal_wide = seasonal.unstack("season")
     seasonal_wide.columns = [
@@ -117,6 +141,10 @@ def _daily_feature_matrices(
             f"{season}_precipitation": f"{season}_prcp"
             for season in ("djf", "mam", "jja", "son")
         }
+        | {
+            f"{season}_precipitation_p95": f"{season}_prcp_p95"
+            for season in ("djf", "mam", "jja", "son")
+        }
     )
 
     daily["_hot"] = (daily["tmax"] > 90.0).astype(float).where(
@@ -128,10 +156,6 @@ def _daily_feature_matrices(
     daily["_heavy_rain"] = (daily["prcp"] >= 1.0).astype(float).where(
         daily["prcp"].notna()
     )
-    daily["_wet"] = (daily["prcp"] >= 0.01).astype(float).where(
-        daily["prcp"].notna()
-    )
-    daily["_wet_prcp"] = daily["prcp"].where(daily["prcp"] >= 0.01)
     annual = daily.groupby(["ID", "Year"], sort=False).agg(
         hot_day_fraction=("_hot", "mean"),
         cold_day_fraction=("_cold", "mean"),
@@ -193,6 +217,12 @@ def _daily_features_at_origin(
         history = matrix.loc[baseline_start:origin].reindex(columns=station_ids)
         recent = history.loc[recent_start:origin]
         features[f"daily_{column}_a5"] = recent.mean() - history.mean()
+        if column in DAILY_PRECIPITATION_COLUMNS:
+            recent_10_start = origin - 10 + 1
+            recent_10 = history.loc[recent_10_start:origin]
+            features[f"daily_{column}_a10"] = (
+                recent_10.mean() - history.mean()
+            )
     return pd.DataFrame(features, index=station_ids)
 
 
@@ -477,9 +507,16 @@ def fit_predict_origin(
     panel: pd.DataFrame,
     origin: int,
     config: GlobalModelConfig = DEFAULT_CONFIG.model,
-) -> tuple[pd.DataFrame, lgb.LGBMRegressor]:
+    methods: tuple[str, ...] = BASE_MODEL_METHODS,
+    feature_columns: tuple[str, ...] | None = None,
+) -> tuple[pd.DataFrame, lgb.LGBMRegressor | None]:
     """Fit models using only labels available at origin and forecast its leads."""
 
+    unknown_methods = set(methods).difference(BASE_MODEL_METHODS)
+    if unknown_methods:
+        raise ValueError(
+            "unknown model method(s): " + ", ".join(sorted(unknown_methods))
+        )
     train = panel.loc[
         (panel["target_year"] <= origin)
         & panel["y"].notna()
@@ -492,36 +529,69 @@ def fit_predict_origin(
     if test.empty:
         raise ValueError(f"No forecast rows are available at origin {origin}")
 
-    feature_columns = [column for column in FEATURES if column in panel.columns]
-    if not feature_columns:
-        raise ValueError("No model features are available in the training panel")
-    training_target = (train["y"] - train["a30"]).to_numpy()
-    ridge = make_pipeline(
-        SimpleImputer(strategy="median"),
-        StandardScaler(),
-        Ridge(alpha=config.ridge_alpha),
-    ).fit(train.loc[:, feature_columns], training_target)
-    lightgbm = lgb.LGBMRegressor(
-        objective="l1",
-        n_estimators=config.lightgbm_estimators,
-        learning_rate=config.lightgbm_learning_rate,
-        num_leaves=config.lightgbm_num_leaves,
-        min_child_samples=config.lightgbm_min_child_samples,
-        subsample=config.lightgbm_subsample,
-        subsample_freq=config.lightgbm_subsample_freq,
-        colsample_bytree=config.lightgbm_colsample_bytree,
-        reg_lambda=config.lightgbm_reg_lambda,
-        random_state=config.random_state,
-        verbosity=-1,
-        n_jobs=1,
-    ).fit(train.loc[:, feature_columns], training_target)
-
-    test["Ridge"] = test["a30"] + ridge.predict(test.loc[:, feature_columns])
-    test["LightGBM"] = test["a30"] + lightgbm.predict(
-        test.loc[:, feature_columns]
+    requested_features = (
+        [column for column in FEATURES if column in panel.columns]
+        if feature_columns is None
+        else list(feature_columns)
     )
-    test["Half-Trend"] = 0.5 * (test["30-Yr Avg"] + test["Linear Trend"])
-    test["Ensemble"] = (
-        test["LightGBM"] + test["Ridge"] + test["Linear Trend"]
-    ) / 3
+    if feature_columns is None:
+        selected_features = requested_features
+    else:
+        unknown_features = set(requested_features).difference(FEATURES)
+        if unknown_features:
+            raise ValueError(
+                "unknown model feature(s): "
+                + ", ".join(sorted(unknown_features))
+            )
+        missing_features = set(requested_features).difference(panel.columns)
+        if missing_features:
+            raise ValueError(
+                "selected model features are unavailable: "
+                + ", ".join(sorted(missing_features))
+            )
+        selected_features = requested_features
+
+    needs_ridge = bool(set(methods).intersection({"Ridge", "Ensemble"}))
+    needs_lightgbm = bool(set(methods).intersection({"LightGBM", "Ensemble"}))
+    ridge = None
+    lightgbm = None
+    if needs_ridge or needs_lightgbm:
+        if not selected_features:
+            raise ValueError("No model features are available in the training panel")
+        training_target = (train["y"] - train["a30"]).to_numpy()
+    if needs_ridge:
+        ridge = make_pipeline(
+            SimpleImputer(strategy="median"),
+            StandardScaler(),
+            Ridge(alpha=config.ridge_alpha),
+        ).fit(train.loc[:, selected_features], training_target)
+        test["Ridge"] = test["a30"] + ridge.predict(
+            test.loc[:, selected_features]
+        )
+    if needs_lightgbm:
+        lightgbm = lgb.LGBMRegressor(
+            objective="l1",
+            n_estimators=config.lightgbm_estimators,
+            learning_rate=config.lightgbm_learning_rate,
+            num_leaves=config.lightgbm_num_leaves,
+            min_child_samples=config.lightgbm_min_child_samples,
+            subsample=config.lightgbm_subsample,
+            subsample_freq=config.lightgbm_subsample_freq,
+            colsample_bytree=config.lightgbm_colsample_bytree,
+            reg_lambda=config.lightgbm_reg_lambda,
+            random_state=config.random_state,
+            verbosity=-1,
+            n_jobs=1,
+        ).fit(train.loc[:, selected_features], training_target)
+        test["LightGBM"] = test["a30"] + lightgbm.predict(
+            test.loc[:, selected_features]
+        )
+    if "Half-Trend" in methods:
+        test["Half-Trend"] = 0.5 * (
+            test["30-Yr Avg"] + test["Linear Trend"]
+        )
+    if "Ensemble" in methods:
+        test["Ensemble"] = (
+            test["LightGBM"] + test["Ridge"] + test["Linear Trend"]
+        ) / 3
     return test, lightgbm

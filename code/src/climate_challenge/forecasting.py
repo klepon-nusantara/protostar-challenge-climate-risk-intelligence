@@ -5,9 +5,14 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from .backtesting import apply_lead_calibration
 from .cleaning import TARGET_COLUMNS, metric_matrix, station_metadata
-from .config import DEFAULT_CONFIG
-from .evaluation import select_best_methods
+from .config import (
+    BASE_MODEL_METHODS,
+    DEFAULT_CONFIG,
+    FORECAST_FEATURES,
+    FORECAST_METHODS,
+)
 from .models.global_models import (
     GlobalModelConfig,
     _daily_feature_matrices,
@@ -102,11 +107,19 @@ def forecast_all_stations(
     minimum_valid_years: int = DEFAULT_CONFIG.forecast.minimum_valid_years,
     neighbors: int = DEFAULT_CONFIG.forecast.neighbor_count,
     daily_observations: pd.DataFrame | None = None,
+    selected_methods: dict[str, str] = FORECAST_METHODS,
+    feature_columns: tuple[str, ...] | None = FORECAST_FEATURES,
 ) -> tuple[pd.DataFrame, dict[str, str]]:
-    """Fit selected methods at the final origin and return station forecasts."""
+    """Fit configured methods at the final origin and return station forecasts."""
 
+    if set(selected_methods) != set(TARGET_COLUMNS):
+        raise ValueError("selected_methods must map every target metric exactly once")
+    invalid_methods = set(selected_methods.values()).difference(BASE_MODEL_METHODS)
+    if invalid_methods:
+        raise ValueError(
+            "unknown model method(s): " + ", ".join(sorted(invalid_methods))
+        )
     metadata = station_metadata(city_info)
-    best_methods = select_best_methods(backtest)
     frames: list[pd.DataFrame] = []
     daily_matrices: dict[str, pd.DataFrame] | None = None
     for metric in TARGET_COLUMNS:
@@ -122,7 +135,14 @@ def forecast_all_stations(
             model_config,
             daily_feature_matrices=daily_matrices,
         )
-        predictions, _ = fit_predict_origin(panel, origin, model_config)
+        method = selected_methods[metric]
+        predictions, _ = fit_predict_origin(
+            panel,
+            origin,
+            model_config,
+            methods=(method,),
+            feature_columns=feature_columns,
+        )
         predictions["metric"] = metric
         frames.append(predictions)
     result = pd.concat(frames, ignore_index=True)
@@ -138,8 +158,17 @@ def forecast_all_stations(
             baseline_window=model_config.baseline_window,
         )
 
+    calibration_predictions = backtest.loc[
+        (backtest["origin"] < origin) & (backtest["target_year"] <= origin)
+    ]
+    result = apply_lead_calibration(
+        result,
+        calibration_predictions,
+        methods=tuple(dict.fromkeys(selected_methods.values())),
+    )
+
     forecast_rows: list[pd.DataFrame] = []
-    for metric, method in best_methods.items():
+    for metric, method in selected_methods.items():
         selected = result.loc[result["metric"] == metric]
         forecast_rows.append(
             pd.DataFrame(
@@ -151,4 +180,4 @@ def forecast_all_stations(
                 }
             )
         )
-    return pd.concat(forecast_rows, ignore_index=True), best_methods
+    return pd.concat(forecast_rows, ignore_index=True), selected_methods

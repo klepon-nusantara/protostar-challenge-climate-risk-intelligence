@@ -30,8 +30,13 @@ python -m climate_challenge backtest
 python -m climate_challenge forecast
 ```
 
-`forecast` runs a temporal backtest, selects methods per metric, predicts
-2019–2025, and writes the filled challenge template to `submission.csv`.
+`forecast` uses `FORECAST_METHODS` and `FORECAST_FEATURES` in
+`src/climate_challenge/config.py`, estimates lead calibration from historical
+backtests for only those configured methods, fits them through the 2018 origin,
+predicts 2019–2025, and writes the filled challenge template to `submission.csv`.
+It does not run a model-selection backtest. `FORECAST_FEATURES = None` uses all
+available features; set it to a tuple of feature names to restrict the feature
+list. Forecast methods are configured separately by target metric.
 The notebooks are optional examples, not pipeline entry points.
 
 To extract daily observations and annual coverage/station tables from the
@@ -50,14 +55,17 @@ origin evaluation.
 When `data/daily.parquet` is present, backtesting and forecasting add daily
 features for seasonal temperature and precipitation, hot/cold/heavy-rain and
 wet-day frequencies, wet-day intensity, daily precipitation maxima, and dry
-spell length. They are recent five-year means relative to each station's
+spell length. Seasonal precipitation features also summarize wet-day frequency,
+wet-day intensity, and the 95th-percentile daily precipitation. Precipitation
+features include recent five- and ten-year means relative to each station's
 trailing 30-year daily-derived baseline. `oot_eval` compares these features
 against the annual-only model using only daily observations through the 2018
 origin; 2019-onward daily data is never loaded for features.
 
 Adjust shared defaults in `src/climate_challenge/config.py`. This includes
-backtest origins and horizon, cleaning tolerance, model hyperparameters, and
-evaluation resampling, forecast fallback settings, and submission paths. CLI
+forecast methods and features, backtest origins and horizon, cleaning tolerance,
+model hyperparameters, evaluation resampling, forecast fallback settings, and
+submission paths. CLI
 options such as `--start-origin`, `--end-origin`, `--horizon`, `--template`, and
 `--output` override their corresponding defaults for one run. The data cutoff
 remains fixed to the challenge's 2018-12-31 forecast cutoff.

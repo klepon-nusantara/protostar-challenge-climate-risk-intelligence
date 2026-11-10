@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 
-MODEL_METHODS = (
+BASE_MODEL_METHODS = (
     "Last Year",
     "30-Yr Avg",
     "Linear Trend",
@@ -14,6 +14,17 @@ MODEL_METHODS = (
     "LightGBM",
     "Ensemble",
 )
+MODEL_METHODS = BASE_MODEL_METHODS
+
+# Forecasting uses these configured methods instead of selecting them by backtest.
+FORECAST_METHODS = {
+    "annual_avg_temp": "LightGBM",
+    "cdd": "Ridge",
+    "hottest_day_temp": "Ridge",
+    "total_precip_in": "LightGBM",
+}
+# None uses every available feature; set a tuple of feature names to restrict it.
+FORECAST_FEATURES: tuple[str, ...] | None = None
 
 
 @dataclass(frozen=True)

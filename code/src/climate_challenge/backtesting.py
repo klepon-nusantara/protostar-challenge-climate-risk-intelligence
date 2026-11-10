@@ -10,7 +10,11 @@ from pathlib import Path
 import pandas as pd
 
 from .cleaning import TARGET_COLUMNS, metric_matrix, station_metadata
-from .config import DEFAULT_CONFIG, GlobalModelConfig
+from .config import (
+    BASE_MODEL_METHODS,
+    DEFAULT_CONFIG,
+    GlobalModelConfig,
+)
 from .evaluation import evaluate_backtest
 from .models.global_models import (
     BASE_FEATURES,
@@ -31,8 +35,11 @@ def run_backtest(
     horizon: int = DEFAULT_CONFIG.backtest.horizon,
     model_config: GlobalModelConfig = DEFAULT_CONFIG.model,
     daily_observations: pd.DataFrame | None = None,
+    calibration_predictions: pd.DataFrame | None = None,
+    methods_by_metric: dict[str, str] | None = None,
+    feature_columns: tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
-    """Replay fixed historical origins, scoring only observed target years."""
+    """Replay origins and score prior-origin lead-calibrated predictions."""
 
     origin_years = tuple(origins)
     if not origin_years:
@@ -44,6 +51,42 @@ def run_backtest(
         raise ValueError(
             "Every backtest origin plus horizon must be within the observed data"
         )
+    if calibration_predictions is not None and not calibration_predictions.empty:
+        required_calibration_columns = {
+            "origin",
+            "target_year",
+            "metric",
+            "h",
+            "y",
+            *(
+                methods_by_metric.values()
+                if methods_by_metric is not None
+                else BASE_MODEL_METHODS
+            ),
+        }
+        missing_calibration_columns = required_calibration_columns.difference(
+            calibration_predictions.columns
+        )
+        if missing_calibration_columns:
+            raise ValueError(
+                "calibration predictions are missing required columns: "
+                + ", ".join(sorted(missing_calibration_columns))
+            )
+
+    if methods_by_metric is not None:
+        missing_metrics = set(TARGET_COLUMNS).difference(methods_by_metric)
+        extra_metrics = set(methods_by_metric).difference(TARGET_COLUMNS)
+        if missing_metrics or extra_metrics:
+            raise ValueError(
+                "methods_by_metric must map every target metric exactly once"
+            )
+        invalid_methods = set(methods_by_metric.values()).difference(
+            BASE_MODEL_METHODS
+        )
+        if invalid_methods:
+            raise ValueError(
+                "unknown model method(s): " + ", ".join(sorted(invalid_methods))
+            )
 
     metadata = station_metadata(city_info)
     outputs: list[pd.DataFrame] = []
@@ -61,11 +104,100 @@ def run_backtest(
             model_config,
             daily_feature_matrices=daily_matrices,
         )
+        metric_outputs: list[pd.DataFrame] = []
+        methods = (
+            (methods_by_metric[metric],)
+            if methods_by_metric is not None
+            else BASE_MODEL_METHODS
+        )
         for origin in origin_years:
-            predictions, _ = fit_predict_origin(panel, origin, model_config)
+            predictions, _ = fit_predict_origin(
+                panel,
+                origin,
+                model_config,
+                methods=methods,
+                feature_columns=feature_columns,
+            )
             predictions["metric"] = metric
-            outputs.append(predictions)
+            metric_outputs.append(predictions)
+
+        metric_backtest = pd.concat(metric_outputs, ignore_index=True)
+        for origin in origin_years:
+            current = metric_backtest.loc[metric_backtest["origin"] == origin].copy()
+            calibration_source = (
+                metric_backtest
+                if calibration_predictions is None
+                else calibration_predictions
+            )
+            calibration = calibration_source.loc[
+                (calibration_source["metric"] == metric)
+                & (calibration_source["origin"] < origin)
+                & (calibration_source["target_year"] <= origin)
+            ]
+            _apply_lead_calibration(current, calibration, methods=methods)
+            outputs.append(current)
     return pd.concat(outputs, ignore_index=True)
+
+
+def _apply_lead_calibration(
+    predictions: pd.DataFrame,
+    calibration_predictions: pd.DataFrame,
+    methods: tuple[str, ...] = BASE_MODEL_METHODS,
+) -> None:
+    """Correct forecasts in place using prior-origin median error by metric and lead."""
+
+    required = {"metric", "h", "y", *methods}
+    missing = required.difference(calibration_predictions.columns)
+    if not calibration_predictions.empty and missing:
+        raise ValueError(
+            "calibration predictions are missing required columns: "
+            + ", ".join(sorted(missing))
+        )
+
+    for method in methods:
+        raw_column = f"_raw_{method}"
+        if raw_column not in predictions:
+            predictions[raw_column] = predictions[method]
+
+        if calibration_predictions.empty:
+            bias = pd.Series(dtype=float, name="bias")
+        else:
+            source_column = f"_raw_{method}"
+            if source_column not in calibration_predictions:
+                source_column = method
+            calibration = calibration_predictions[
+                ["metric", "h", "y", source_column]
+            ].rename(columns={source_column: method})
+            calibration = calibration.replace(
+                [float("inf"), float("-inf")], pd.NA
+            )
+            calibration = calibration.dropna(subset=["y", method]).copy()
+            calibration["error"] = calibration[method] - calibration["y"]
+            bias = calibration.groupby(["metric", "h"])["error"].median()
+
+        keys = pd.MultiIndex.from_frame(predictions[["metric", "h"]])
+        corrections = bias.reindex(keys).fillna(0.0).to_numpy()
+        calibrated = predictions[raw_column] - pd.Series(
+            corrections, index=predictions.index
+        )
+        nonnegative = predictions["metric"].isin(
+            {"total_precip_in", "cdd"}
+        )
+        predictions[method] = calibrated.where(
+            ~nonnegative, calibrated.clip(lower=0.0)
+        )
+
+
+def apply_lead_calibration(
+    predictions: pd.DataFrame,
+    calibration_predictions: pd.DataFrame,
+    methods: tuple[str, ...] = BASE_MODEL_METHODS,
+) -> pd.DataFrame:
+    """Return default method predictions corrected by historical lead-specific bias."""
+
+    result = predictions.copy()
+    _apply_lead_calibration(result, calibration_predictions, methods=methods)
+    return result
 
 
 def append_backtest_run_log(

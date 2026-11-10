@@ -28,7 +28,7 @@ def run_oot_evaluation(
     model_config: GlobalModelConfig = DEFAULT_CONFIG.model,
     daily_observations: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Evaluate every configured method at a fixed origin on later observations."""
+    """Score raw and pre-origin-calibrated methods on later observations."""
 
     if max_horizon < 1:
         raise ValueError("max_horizon must be at least 1")
@@ -85,6 +85,37 @@ def run_oot_evaluation(
             "No valid cleaned target observations are available after origin"
         )
 
+    historical_cleaned = clean_annual_indices(historical_annual_indices).data
+    calibration_horizon = DEFAULT_CONFIG.backtest.horizon
+    calibration_end = min(
+        DEFAULT_CONFIG.backtest.end_origin,
+        origin - calibration_horizon,
+    )
+    panel_first_origin = max(
+        model_config.first_origin,
+        int(historical_cleaned["Year"].min())
+        + model_config.baseline_window
+        - 1,
+    )
+    calibration_start = max(
+        DEFAULT_CONFIG.backtest.start_origin,
+        panel_first_origin + 1,
+    )
+    calibration_origins = tuple(
+        range(calibration_start, calibration_end + 1)
+    )
+    calibration_predictions = (
+        run_backtest(
+            historical_cleaned,
+            city_info,
+            origins=calibration_origins,
+            horizon=calibration_horizon,
+            model_config=model_config,
+            daily_observations=daily_observations,
+        )
+        if calibration_origins
+        else pd.DataFrame()
+    )
     backtest = run_backtest(
         cleaned.data,
         city_info,
@@ -92,6 +123,7 @@ def run_oot_evaluation(
         horizon=horizon,
         model_config=model_config,
         daily_observations=daily_observations,
+        calibration_predictions=calibration_predictions,
     )
     scores = evaluate_backtest(backtest, by_horizon=True)
     if set(scores["method"]) != set(MODEL_METHODS):

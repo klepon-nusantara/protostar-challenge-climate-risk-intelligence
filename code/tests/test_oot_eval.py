@@ -274,6 +274,8 @@ class OotEvaluationTests(unittest.TestCase):
         self.assertEqual(set(backtest["target_year"]), set(range(2019, 2024)))
         self.assertEqual(set(scores["h"]), set(range(1, 6)))
         self.assertEqual(set(scores["method"]), set(MODEL_METHODS))
+        self.assertNotIn("Ridge (Lead-Calibrated)", backtest.columns)
+        self.assertIn("_raw_Ridge", backtest.columns)
         self.assertTrue(scores["n"].gt(0).all())
 
     def test_rejects_non_oot_years_in_oot_targets(self) -> None:

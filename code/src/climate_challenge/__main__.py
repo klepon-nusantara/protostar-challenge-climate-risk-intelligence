@@ -9,7 +9,7 @@ import pandas as pd
 
 from .backtesting import append_backtest_run_log, run_backtest
 from .cleaning import CleaningResult, clean_annual_indices
-from .config import DEFAULT_CONFIG
+from .config import DEFAULT_CONFIG, FORECAST_FEATURES, FORECAST_METHODS
 from .data import FORECAST_CUTOFF, PreparedDataset, prepare_dataset
 from .evaluation import evaluate_backtest
 from .forecasting import forecast_all_stations
@@ -179,7 +179,12 @@ def main() -> None:
                 daily_backtest.assign(run_label="daily feature groups"),
             ],
             ignore_index=True,
-        ).to_csv(predictions_path, index=False)
+        ).loc[
+            :,
+            lambda frame: [
+                column for column in frame if not column.startswith("_raw_")
+            ],
+        ].to_csv(predictions_path, index=False)
         print("OOT data quality audit:")
         print(audit.to_string())
         baseline_pooled = evaluate_backtest(baseline_backtest).rename(
@@ -230,6 +235,34 @@ def main() -> None:
             f"end origin plus horizon must not exceed last observed year {latest_year}"
         )
 
+    if command == "forecast":
+        print(
+            "Estimating lead calibration for configured forecast methods only: "
+            f"{FORECAST_METHODS}"
+        )
+        calibration_backtest = run_backtest(
+            cleaned,
+            prepared.city_info,
+            origins=origins,
+            horizon=args.horizon,
+            daily_observations=daily_observations,
+            methods_by_metric=FORECAST_METHODS,
+            feature_columns=FORECAST_FEATURES,
+        )
+        forecasts, selected_methods = forecast_all_stations(
+            cleaned,
+            prepared.city_info,
+            calibration_backtest,
+            horizon=args.horizon,
+            daily_observations=daily_observations,
+            selected_methods=FORECAST_METHODS,
+            feature_columns=FORECAST_FEATURES,
+        )
+        submission = write_submission(forecasts, args.template, args.output)
+        print(f"Selected methods by metric: {selected_methods}")
+        print(f"Wrote {len(submission):,} rows to {args.output}.")
+        return
+
     backtest = run_backtest(
         cleaned,
         prepared.city_info,
@@ -243,7 +276,12 @@ def main() -> None:
         results_directory = repository_root / "results" / "backtest"
         results_directory.mkdir(parents=True, exist_ok=True)
         predictions_path = results_directory / "predictions.csv"
-        backtest.to_csv(predictions_path, index=False)
+        backtest.loc[
+            :,
+            lambda frame: [
+                column for column in frame if not column.startswith("_raw_")
+            ],
+        ].to_csv(predictions_path, index=False)
         input_paths = (
             prepared.data_dir / "annual_indices.parquet",
             prepared.data_dir / "city_info.parquet",
@@ -263,18 +301,6 @@ def main() -> None:
         print(f"Appended backtest run details to {log_path}.")
         print(f"Wrote backtest predictions to {predictions_path}.")
         return
-
-    forecasts, best_methods = forecast_all_stations(
-        cleaned,
-        prepared.city_info,
-        backtest,
-        horizon=args.horizon,
-        daily_observations=daily_observations,
-    )
-    submission = write_submission(forecasts, args.template, args.output)
-    print(f"Selected methods by metric: {best_methods}")
-    print(f"Wrote {len(submission):,} rows to {args.output}.")
-
 
 if __name__ == "__main__":
     main()

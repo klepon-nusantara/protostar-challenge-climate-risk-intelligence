@@ -25,3 +25,4 @@ venv/
 data/*
 /results/
 /oot_eval.log
+submission_check.py
