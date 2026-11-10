@@ -43,11 +43,19 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end
 
 ## Policy Idea
 
-To be completed by the team.
+**Protect workers and local economic activity from rising heat.** Our submitted forecasts imply higher cooling demand in many cities: the mean city-level increase in forecast cooling degree days (CDD) for 2019–2025 versus observed 2010–2018 is largest in California (+172 °F-days), Arizona (+154), South Carolina (+148), Nevada (+147), and Oregon (+145). These are unweighted averages across the challenge cities in each state. The economic context makes continuity planning especially salient: California had about $2.85 trillion in 2018 real GDP and $60,994 per-capita personal income, while Arizona had about $346 billion in real GDP and $45,223 per-capita personal income.
+
+![Map of 2018 state real GDP and mean forecast annual temperature for challenge cities](policy_heat_economy_map.png)
+
+State shading shows 2018 real GDP (log scale); city dots show their mean forecast annual average temperature for 2019–2025. GDP provides economic context, not an estimate of heat-related losses.
+
+We recommend state and local governments, utilities, and employers coordinate heat-resilience pilots in high-CDD cities: retrofit public buildings and small-business spaces with efficient cooling, shade and cool roofs; maintain accessible cooling centers and heat-health alerts; strengthen grid and backup-power plans for essential services; and enforce work-rest-water protections for outdoor workers. Grants and utility incentives can help smaller employers and lower-income households afford upgrades. Target investments using neighborhood-level heat exposure, energy burden, age, health, and outdoor-work data, then evaluate them using heat illness, workplace disruption, cooling access, and energy burden. These are model forecasts compared with historical observations, not observed 2019–2025 weather or estimates of economic damages; state GDP and income provide context, not evidence that heat caused losses or a measure of household vulnerability.
 
 ## Feedback to the Ecosystem
 
-To be completed by the team.
+The supplied artifacts were sufficient to build the forecasts and a follow-on policy analysis, but combining city forecasts with state economic data required joining `submission.csv` to historical climate records, then using `city_climate_divisions.parquet` to map station IDs to state FIPS before matching BEA tables. The crosswalk worked, but it is not immediately apparent from the forecast file alone, and BEA's wide year-column format needs extra reshaping for analysis.
+
+For future challenges, include a small documented city crosswalk with each stable city ID, display name, state FIPS, and coordinates, and provide a concise data dictionary listing metric definitions, units, and source tables. A short example notebook demonstrating a city-to-region join and conversion of annual economic tables to a year/ geography/metric format would make policy analyses easier to reproduce and extend. The current-vintage BEA tables also include years beyond the forecast cutoff; clearly labeling those as policy-analysis context—not valid forecast inputs without vintage controls—would help prevent accidental leakage.
 
 ## Files
 
