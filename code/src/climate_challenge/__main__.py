@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pandas as pd
 
-from .backtesting import run_backtest
-from .cleaning import clean_annual_indices
+from .backtesting import append_backtest_run_log, run_backtest
+from .cleaning import CleaningResult, clean_annual_indices
 from .config import DEFAULT_CONFIG
 from .data import FORECAST_CUTOFF, PreparedDataset, prepare_dataset
 from .evaluation import evaluate_backtest
@@ -22,7 +22,7 @@ from .oot_eval import (
 from .submission import write_submission
 
 
-def _load_clean_data() -> tuple[PreparedDataset, pd.DataFrame, pd.DataFrame | None]:
+def _load_clean_data() -> tuple[PreparedDataset, CleaningResult, pd.DataFrame | None]:
     prepared = prepare_dataset()
     cleaned = clean_annual_indices(prepared.annual_indices)
     print("Data quality audit:")
@@ -38,7 +38,7 @@ def _load_clean_data() -> tuple[PreparedDataset, pd.DataFrame, pd.DataFrame | No
         )
     else:
         print(f"Using daily feature data from {daily_path}.")
-    return prepared, cleaned.data, daily_observations
+    return prepared, cleaned, daily_observations
 
 
 def _add_backtest_arguments(parser: argparse.ArgumentParser) -> None:
@@ -148,8 +148,9 @@ def main() -> None:
             daily_observations=daily_observations,
         )
         repository_root = Path(__file__).resolve().parents[3]
+        results_directory = repository_root / "results" / "oot_eval"
         log_path = append_oot_run_log(
-            repository_root / "oot_eval.log",
+            results_directory / "oot_eval.log",
             baseline_backtest,
             baseline_scores,
             audit,
@@ -171,6 +172,14 @@ def main() -> None:
             ),
             run_label="daily feature groups",
         )
+        predictions_path = results_directory / "predictions.csv"
+        pd.concat(
+            [
+                baseline_backtest.assign(run_label="annual-only baseline"),
+                daily_backtest.assign(run_label="daily feature groups"),
+            ],
+            ignore_index=True,
+        ).to_csv(predictions_path, index=False)
         print("OOT data quality audit:")
         print(audit.to_string())
         baseline_pooled = evaluate_backtest(baseline_backtest).rename(
@@ -199,6 +208,7 @@ def main() -> None:
             )
         )
         print(f"Appended baseline and daily-feature runs to {log_path}.")
+        print(f"Wrote OOT predictions to {predictions_path}.")
         return
 
     if args.start_origin > args.end_origin:
@@ -212,7 +222,8 @@ def main() -> None:
         )
     origins = range(args.start_origin, args.end_origin + 1)
 
-    prepared, cleaned, daily_observations = _load_clean_data()
+    prepared, cleaning_result, daily_observations = _load_clean_data()
+    cleaned = cleaning_result.data
     latest_year = min(int(cleaned["Year"].max()), FORECAST_CUTOFF.year)
     if args.end_origin + args.horizon > latest_year:
         parser.error(
@@ -228,7 +239,29 @@ def main() -> None:
     )
     scores = evaluate_backtest(backtest)
     if command == "backtest":
+        repository_root = Path(__file__).resolve().parents[3]
+        results_directory = repository_root / "results" / "backtest"
+        results_directory.mkdir(parents=True, exist_ok=True)
+        predictions_path = results_directory / "predictions.csv"
+        backtest.to_csv(predictions_path, index=False)
+        input_paths = (
+            prepared.data_dir / "annual_indices.parquet",
+            prepared.data_dir / "city_info.parquet",
+        )
+        if daily_observations is not None:
+            input_paths += (prepared.data_dir / "daily.parquet",)
+        log_path = append_backtest_run_log(
+            results_directory / "backtest.log",
+            backtest,
+            scores,
+            cleaning_result.audit,
+            origins=tuple(origins),
+            horizon=args.horizon,
+            input_paths=input_paths,
+        )
         print(scores.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+        print(f"Appended backtest run details to {log_path}.")
+        print(f"Wrote backtest predictions to {predictions_path}.")
         return
 
     forecasts, best_methods = forecast_all_stations(

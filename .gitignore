@@ -23,4 +23,5 @@ venv/
 
 # Local data files
 data/*
+/results/
 /oot_eval.log

@@ -1,10 +1,13 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
 import numpy as np
 import pandas as pd
 
-from climate_challenge.backtesting import run_backtest
+from climate_challenge.backtesting import append_backtest_run_log, run_backtest
 from climate_challenge.cleaning import clean_annual_indices, metric_matrix, station_metadata
+from climate_challenge.config import MODEL_METHODS
 from climate_challenge.evaluation import evaluate_backtest, select_best_methods
 from climate_challenge.forecasting import forecast_all_stations
 from climate_challenge.models.global_models import GlobalModelConfig
@@ -53,6 +56,59 @@ def make_dataset() -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 class CleaningAndEvaluationTests(unittest.TestCase):
+    def test_backtest_run_log_appends_configuration_and_scores(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            log_path = Path(temporary_directory) / "backtest" / "backtest.log"
+            backtest = pd.DataFrame(
+                {
+                    "origin": [2010, 2010],
+                    "target_year": [2011, 2012],
+                    "city_id": ["US000000001", "US000000001"],
+                    "metric": ["annual_avg_temp", "annual_avg_temp"],
+                    "h": [1, 2],
+                    "y": [10.0, 20.0],
+                    **{
+                        method: [10.0, 20.0]
+                        for method in MODEL_METHODS
+                        if method != "Ridge"
+                    },
+                    "Ridge": [11.0, 23.0],
+                }
+            )
+            scores = evaluate_backtest(backtest)
+            audit = pd.DataFrame(
+                {"raw_missing": [0]}, index=["annual_avg_temp"]
+            )
+
+            append_backtest_run_log(
+                log_path,
+                backtest,
+                scores,
+                audit,
+                origins=(2010,),
+                horizon=2,
+                input_paths=("data/annual_indices.parquet",),
+            )
+            append_backtest_run_log(
+                log_path,
+                backtest,
+                scores,
+                audit,
+                origins=(2010,),
+                horizon=2,
+            )
+
+            log_content = log_path.read_text(encoding="utf-8")
+            self.assertEqual(log_content.count("Backtest run:"), 2)
+            self.assertIn("Origins: 2010-2010 (1 origins)", log_content)
+            self.assertIn("Forecast horizon: 2", log_content)
+            self.assertIn("Scored period: 2011-2012", log_content)
+            self.assertIn("Models experimented:", log_content)
+            self.assertIn("Ridge", log_content)
+            self.assertIn('"ridge_alpha": 10.0', log_content)
+            self.assertIn("annual_avg_temp", log_content)
+            self.assertIn("data/annual_indices.parquet", log_content)
+
     def test_cleaning_masks_inf_and_high_missing_day_years(self) -> None:
         annual, _ = make_dataset()
         annual.loc[0, "Avg Temp"] = np.inf
