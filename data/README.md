@@ -8,6 +8,11 @@ City locations are spatially joined to the NOAA climate divisions shapefile
 archive and cached by the same command.
 Distances to the nearest Natural Earth coastline are calculated in the
 CONUS Albers equal-area projection and cached in kilometers.
+Annual BEA state and county GDP archives supplied in `us_gdp/` are converted
+to table-specific Parquet files in the same directory by `prepare`.
+Annual BEA state and county personal income archives supplied in
+`us_personal_income/` are converted to table-specific Parquet files by
+`prepare` as well.
 Daily observations and coverage tables are extracted from the raw station CSVs
 in `7890488/` by `python -m climate_challenge.oot_eval.preprocessing`.
 
@@ -27,12 +32,18 @@ in `7890488/` by `python -m climate_challenge.oot_eval.preprocessing`.
 | `daily_oot.parquet` | Daily weather observations by station | Lai & Dzombak (2019), `7890488/` station CSVs | CC0-1.0 | From 2019 onward, as available in the source files | Extracted unchanged, with station ID and name, and kept separate from historical data | Analysis only; never a forecast input |
 | `coverage_and_stations_oot.parquet` | Annual coverage and station-segment/change counts | Derived from OOT daily observations and `7890488/city_info.csv` | CC0-1.0 | From 2019 onward, as available in the source files | Same calculation as the historical table, restricted to years from 2019 onward | Analysis only; never a forecast input |
 | `annual_indices_oot.parquet`, `city_info_oot.parquet` | Annualized post-2018 evaluation targets and station periods | Derived from `7890488/` station CSVs and `city_info.csv` | CC0-1.0 | From 2019 onward, as available in the source files | Created by the OOT preprocessing command for fixed-origin evaluation | Analysis only; never a forecast input |
+| `us_gdp/*.zip` | BEA regional GDP tables, including county/state annual series, quarterly series, and territory data | [BEA Regional Economic Accounts](https://apps.bea.gov/regional/downloadzip.htm) | See BEA terms and the metadata supplied with each archive | Varies by archive; annual state GDP begins in 1997 and county tables in 2001 | Source ZIP archives supplied in `data/us_gdp/` | Policy analysis |
+| `us_gdp/*.parquet` | Parquet conversions of annual state/county GDP tables from `CAGDP` and `SAGDP` archives | Derived from the corresponding BEA ZIP archives | Same as source archives | Varies by table; includes years after 2018 | `prepare` reads each `__ALL_AREAS_` CSV, keeps geography/FIPS and table metadata, converts annual values to numeric, and caches one Parquet per ZIP archive | Policy analysis; not used as forecast features |
+| `us_personal_income/*.zip` | BEA regional personal income tables, including county/state annual series, per-capita summaries, and quarterly series | [BEA Regional Economic Accounts](https://apps.bea.gov/regional/downloadzip.htm) | See BEA terms and the metadata supplied with each archive | Varies by archive; annual state series begins in 1929, county detail varies by table | Source ZIP archives supplied in `data/us_personal_income/` | Policy analysis |
+| `us_personal_income/*.parquet` | Parquet conversions of annual personal income tables from `CAINC` and `SAINC` archives | Derived from the corresponding BEA ZIP archives | Same as source archives | Varies by table; includes years after 2018 | `prepare` reads each annual `__ALL_AREAS_` CSV, keeps geography/FIPS and table metadata, converts annual values to numeric, and caches one Parquet per ZIP archive | Policy analysis; not used as forecast features |
 
 ## How the files fit together
 
 - **Join keys:** `ID` identifies the station in the annual, city, elevation, city climate division, and coastline distance tables.
 - **Units:** The annual table retains the source dataset's units and column names (for example, temperatures in °F, precipitation in inches, and `cdd` in °F-days).
 - **Known limitations:** The training data ends in 2018. Annual indices can contain missing values; inspect the `Miss ...` columns before modeling.
+- **GDP limitations:** State GDP can be associated with the climate stations by state FIPS (all 210 have state assignments); county-level GDP would require a county crosswalk. The provided GDP tables include years after the forecast origin and do not provide historical release vintages, so values available at each forecast origin cannot be verified. They are therefore kept for policy analysis, not used as forecasting features.
+- **Personal income limitations:** Personal income is not used as a forecast feature; the provided tables include post-origin years and current-vintage estimates. Geographic and release-vintage matching must be considered for policy analysis.
 - Static geography tables provide optional feature inputs as configured in `code/src/climate_challenge/config.py`. The default OOT/forecast configuration uses nearest-coast distance and climate-division peer anomalies for hottest-day temperature only. The climate/state anomalies are recalculated at each origin from observations available through that origin.
 - Daily and coverage tables are exported for feature exploration; daily feature use is constrained by each model origin.
 

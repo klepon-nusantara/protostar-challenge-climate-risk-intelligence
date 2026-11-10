@@ -151,6 +151,8 @@ version at submission time; submit again after any changes you want counted.
 ## Data
 
 - **External data:** Station elevation metadata is queried from the [Open-Elevation API](https://api.open-elevation.com/api/v1/lookup). Climate division boundaries are from [NOAA NCEI](https://www.ncei.noaa.gov/monitoring-content/data/us/climdiv/monthly/current/), and coastline data is from [Natural Earth](https://www.naturalearthdata.com/downloads/10m-physical-vectors/). Derived geography features are static metadata; all weather-derived group anomalies use observations through the forecast origin. Weather forecast inputs come from the challenge's training dataset and end in 2018.
+- **BEA GDP:** Annual state/county GDP archives in `data/us_gdp/` are preprocessed to table-specific Parquet files by `prepare`, for policy analysis. GDP is not used as a forecast feature: the downloaded files include years after the forecast origin and do not provide historical release vintages, so information available at each origin cannot be verified.
+- **BEA personal income:** Annual state/county personal income archives in `data/us_personal_income/` are preprocessed to table-specific Parquet files by `prepare` for policy analysis. Like GDP, these current-vintage series are not used as forecast features.
 - **Curated data:** see the data card in [`data/README.md`](data/README.md) (each file, its source, license and preparation).
 
 Training data: [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), from:

@@ -30,6 +30,8 @@ from .oot_eval import (
     run_oot_evaluation,
 )
 from .submission import write_submission
+from .us_gdp import preprocess_us_gdp
+from .us_personal_income import preprocess_us_personal_income
 
 
 def _load_clean_data() -> tuple[PreparedDataset, CleaningResult, pd.DataFrame | None]:
@@ -113,6 +115,26 @@ def main() -> None:
 
     if command == "prepare":
         prepared = prepare_dataset()
+        gdp_directory = prepared.data_dir / "us_gdp"
+        gdp_tables = (
+            preprocess_us_gdp(gdp_directory)
+            if gdp_directory.is_dir()
+            and any(
+                archive.name.startswith(("CAGDP", "SAGDP"))
+                for archive in gdp_directory.glob("*.zip")
+            )
+            else ()
+        )
+        personal_income_directory = prepared.data_dir / "us_personal_income"
+        personal_income_tables = (
+            preprocess_us_personal_income(personal_income_directory)
+            if personal_income_directory.is_dir()
+            and any(
+                archive.name.startswith(("CAINC", "SAINC"))
+                for archive in personal_income_directory.glob("*.zip")
+            )
+            else ()
+        )
         years = prepared.annual_indices["Year"]
         print(
             "Downloaded and validated challenge data "
@@ -126,6 +148,16 @@ def main() -> None:
             f"{len(prepared.city_coastline_distances):,} stations)."
         )
         print(f"Parquet files are stored in {prepared.data_dir}.")
+        if gdp_tables:
+            print(
+                f"Preprocessed {len(gdp_tables)} annual BEA GDP tables in "
+                f"{gdp_directory}."
+            )
+        if personal_income_tables:
+            print(
+                f"Preprocessed {len(personal_income_tables)} annual BEA personal "
+                f"income tables in {personal_income_directory}."
+            )
         return
 
     if command == "oot_eval":

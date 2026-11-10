@@ -40,6 +40,14 @@ to the nearest coastline from `data/ne_10m_coastline.zip` when
 cached as Parquet and exposed as `prepared.elevation`,
 `prepared.city_climate_divisions`, and `prepared.city_coastline_distances`;
 they are not automatically joined into model features.
+If `data/us_gdp/` contains BEA `CAGDP` or `SAGDP` ZIP archives, `prepare` also
+converts their annual `__ALL_AREAS_` tables to cached, table-specific Parquet
+files in that directory. Quarterly and territory archives are not included in
+this conversion.
+If `data/us_personal_income/` contains BEA `CAINC` or `SAINC` ZIP archives,
+`prepare` likewise converts their annual `__ALL_AREAS_` tables to cached
+Parquet files in that directory. Quarterly and per-capita tables are not
+included in this conversion.
 
 `forecast` uses `FORECAST_METHODS` and `FORECAST_FEATURES` in
 `src/climate_challenge/config.py`, estimates lead calibration from historical
@@ -123,6 +131,15 @@ site_features = DataSource(
 )
 prepared = prepare_dataset(additional_sources=[site_features])
 ```
+
+The BEA GDP tables are retained for policy analysis rather than forecast
+features. State GDP can be matched to the 210 climate stations by state FIPS,
+but the supplied series begin in 1997 (county detail begins in 2001) and the
+current downloads include post-2018 observations without historical release
+vintages. Those values cannot be verified as information available at each
+backtest or forecast origin.
+The BEA personal income tables are also retained for policy analysis and are
+not forecast inputs.
 
 Run the unit tests from the repository root with:
 
