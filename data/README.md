@@ -6,6 +6,8 @@ training dataset by `python -m climate_challenge`. Station elevations are
 queried from Open-Elevation and cached by `python -m climate_challenge prepare`.
 City locations are spatially joined to the NOAA climate divisions shapefile
 archive and cached by the same command.
+Distances to the nearest Natural Earth coastline are calculated in the
+CONUS Albers equal-area projection and cached in kilometers.
 Daily observations and coverage tables are extracted from the raw station CSVs
 in `7890488/` by `python -m climate_challenge.oot_eval.preprocessing`.
 
@@ -18,6 +20,8 @@ in `7890488/` by `python -m climate_challenge.oot_eval.preprocessing`.
 | `elevation.parquet` | Elevation in meters for each unique station ID | [Open-Elevation API](https://api.open-elevation.com/api/v1/lookup) | Not specified by the API; check upstream terms before redistribution | Static geographic data | Queried once per station during `prepare`; stores `ID` and `elevation_m` as Parquet and is reused on later runs | Available for feature use; not currently used by forecasting |
 | `CONUS_CLIMATE_DIVISIONS.shp.zip` | NOAA CONUS climate division boundaries | [NOAA NCEI climate division monthly data](https://www.ncei.noaa.gov/monitoring-content/data/us/climdiv/monthly/current/) | U.S. government data | Static geographic boundaries | Source shapefile archive supplied in `data/`; reprojected to EPSG:4326 before spatial joining | Input to city climate division table |
 | `city_climate_divisions.parquet` | One climate-division record per unique weather station, including division attributes | Derived from `city_info.parquet` and `CONUS_CLIMATE_DIVISIONS.shp.zip` | U.S. government data | Static geographic metadata | `prepare` joins station points to polygons using `within`; contains station ID, name, coordinates, and `division_`-prefixed shapefile fields | Available for feature use; not currently used by forecasting |
+| `ne_10m_coastline.zip` | Natural Earth 1:10m coastline linework | [Natural Earth 10m Physical Vectors](https://www.naturalearthdata.com/downloads/10m-physical-vectors/) | Public domain | Static geographic boundaries | Source shapefile archive supplied in `data/`; clipped to the CONUS region and projected to EPSG:5070 for distance calculations | Input to city coastline distance table |
+| `city_coastline_distances.parquet` | Distance from each unique weather station to the nearest coastline, in kilometers | Derived from `city_info.parquet` and `ne_10m_coastline.zip` | Public domain source data | Static geographic metadata | `prepare` calculates planar nearest distance after projecting both source and points to EPSG:5070; contains station ID, name, coordinates, and `distance_to_coast_km` | Available for feature use; not currently used by forecasting |
 | `daily.parquet` | Daily maximum/minimum temperature and precipitation by station | Lai & Dzombak (2019), `7890488/` station CSVs | CC0-1.0 | Through 2018-12-31 | Extracted unchanged, with station ID and name, and restricted to dates through the forecast cutoff | Historical feature exploration; not currently loaded by the forecasting pipeline |
 | `coverage_and_stations.parquet` | Annual count of days with both temperatures and station-segment/change counts | Derived from `daily.parquet` and `7890488/city_info.csv` | CC0-1.0 | Through 2018 | Counted complete temperature pairs by station-year; station segment and changes come from station-period start dates | Historical feature exploration; not currently loaded by the forecasting pipeline |
 | `daily_oot.parquet` | Daily weather observations by station | Lai & Dzombak (2019), `7890488/` station CSVs | CC0-1.0 | From 2019 onward, as available in the source files | Extracted unchanged, with station ID and name, and kept separate from historical data | Analysis only; never a forecast input |
@@ -26,7 +30,7 @@ in `7890488/` by `python -m climate_challenge.oot_eval.preprocessing`.
 
 ## How the files fit together
 
-- **Join keys:** `ID` identifies the station in the annual, city, elevation, and city climate division tables.
+- **Join keys:** `ID` identifies the station in the annual, city, elevation, city climate division, and coastline distance tables.
 - **Units:** The annual table retains the source dataset's units and column names (for example, temperatures in °F, precipitation in inches, and `cdd` in °F-days).
 - **Known limitations:** The training data ends in 2018. Annual indices can contain missing values; inspect the `Miss ...` columns before modeling.
 - Daily and coverage tables are exported for feature exploration; adding them to a model requires a separate time-based backtest.

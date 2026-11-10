@@ -105,7 +105,9 @@ def main() -> None:
             f"city_info: {len(prepared.city_info):,} rows; "
             f"elevation: {len(prepared.elevation):,} stations; "
             f"city climate divisions: "
-            f"{len(prepared.city_climate_divisions):,} stations)."
+            f"{len(prepared.city_climate_divisions):,} stations; "
+            f"coastline distances: "
+            f"{len(prepared.city_coastline_distances):,} stations)."
         )
         print(f"Parquet files are stored in {prepared.data_dir}.")
         return

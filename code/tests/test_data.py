@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import geopandas as gpd
 import pandas as pd
-from shapely.geometry import box
+from shapely.geometry import LineString, box
 
 from climate_challenge.data import DataSource, ORIGINAL_FILES, prepare_dataset
 
@@ -47,6 +47,15 @@ class PrepareDatasetTests(unittest.TestCase):
                 "division_CLIMDIV": ["0101"],
             }
         ).to_parquet(self.data_dir / "city_climate_divisions.parquet")
+        pd.DataFrame(
+            {
+                "ID": ["US000000001"],
+                "Name": ["Example"],
+                "Lat": [40.0],
+                "Lon": [-80.0],
+                "distance_to_coast_km": [12.5],
+            }
+        ).to_parquet(self.data_dir / "city_coastline_distances.parquet")
 
     def test_loads_challenge_tables_from_data_directory(self) -> None:
         with patch("climate_challenge.data.urlopen") as open_url:
@@ -58,6 +67,10 @@ class PrepareDatasetTests(unittest.TestCase):
         self.assertEqual(prepared.elevation.loc[0, "elevation_m"], 250.0)
         self.assertEqual(
             prepared.city_climate_divisions.loc[0, "division_CLIMDIV"], "0101"
+        )
+        self.assertEqual(
+            prepared.city_coastline_distances.loc[0, "distance_to_coast_km"],
+            12.5,
         )
         self.assertEqual(len(prepared.additional_sources), 0)
         self.assertEqual(prepared.data_dir, self.data_dir)
@@ -81,6 +94,30 @@ class PrepareDatasetTests(unittest.TestCase):
         self.assertEqual(
             prepared.city_climate_divisions.loc[0, "division_CLIMDIV"], "0101"
         )
+
+    def test_computes_and_caches_nearest_coastline_distance(self) -> None:
+        (self.data_dir / "city_coastline_distances.parquet").unlink()
+        archive_path = self.data_dir / "ne_10m_coastline.zip"
+        archive_path.touch()
+        coastline = gpd.GeoDataFrame(
+            {"featurecla": ["Coastline"]},
+            geometry=[LineString([(-81.0, 39.9), (-79.0, 39.9)])],
+            crs="EPSG:4326",
+        )
+
+        with patch("geopandas.read_file", return_value=coastline) as read_file:
+            prepared = prepare_dataset(data_dir=self.data_dir)
+
+        read_file.assert_called_once_with(archive_path, engine="pyogrio")
+        self.assertTrue(
+            (self.data_dir / "city_coastline_distances.parquet").is_file()
+        )
+        self.assertEqual(len(prepared.city_coastline_distances), 1)
+        distance = prepared.city_coastline_distances.loc[
+            0, "distance_to_coast_km"
+        ]
+        self.assertGreater(distance, 0)
+        self.assertLess(distance, 12)
 
     def test_additional_source_receives_cutoff_and_is_kept_separate(self) -> None:
         seen_cutoffs: list[pd.Timestamp] = []
@@ -165,6 +202,7 @@ class PrepareDatasetTests(unittest.TestCase):
 
         archive_path = self.data_dir / "CONUS_CLIMATE_DIVISIONS.shp.zip"
         archive_path.touch()
+        (self.data_dir / "ne_10m_coastline.zip").touch()
         divisions = gpd.GeoDataFrame(
             {"CLIMDIV": ["0101"]},
             geometry=[box(-81.0, 39.0, -79.0, 41.0)],
@@ -172,7 +210,17 @@ class PrepareDatasetTests(unittest.TestCase):
         )
         with (
             patch("climate_challenge.data.urlopen", side_effect=fake_urlopen),
-            patch("geopandas.read_file", return_value=divisions),
+            patch(
+                "geopandas.read_file",
+                side_effect=[
+                    divisions,
+                    gpd.GeoDataFrame(
+                        {"featurecla": ["Coastline"]},
+                        geometry=[LineString([(-81.0, 39.9), (-79.0, 39.9)])],
+                        crs="EPSG:4326",
+                    ),
+                ],
+            ),
         ):
             prepared = prepare_dataset(data_dir=self.data_dir)
 
@@ -180,6 +228,9 @@ class PrepareDatasetTests(unittest.TestCase):
         self.assertTrue((self.data_dir / "city_info.parquet").exists())
         self.assertTrue((self.data_dir / "elevation.parquet").exists())
         self.assertTrue((self.data_dir / "city_climate_divisions.parquet").exists())
+        self.assertTrue(
+            (self.data_dir / "city_coastline_distances.parquet").exists()
+        )
         self.assertEqual(prepared.elevation.loc[0, "elevation_m"], 250.0)
         self.assertEqual(len(prepared.city_climate_divisions), 1)
         self.assertEqual(len(prepared.annual_indices), 1)

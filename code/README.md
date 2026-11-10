@@ -34,10 +34,12 @@ python -m climate_challenge forecast
 Open-Elevation for each unique station if `data/elevation.parquet` is missing,
 and spatially joins station locations to
 `data/CONUS_CLIMATE_DIVISIONS.shp.zip` if
-`data/city_climate_divisions.parquet` is missing. Both datasets are cached as
-Parquet and exposed as `prepared.elevation` and
-`prepared.city_climate_divisions`; neither is automatically joined into model
-features.
+`data/city_climate_divisions.parquet` is missing. It also calculates distance
+to the nearest coastline from `data/ne_10m_coastline.zip` when
+`data/city_coastline_distances.parquet` is missing. All derived datasets are
+cached as Parquet and exposed as `prepared.elevation`,
+`prepared.city_climate_divisions`, and `prepared.city_coastline_distances`;
+they are not automatically joined into model features.
 
 `forecast` uses `FORECAST_METHODS` and `FORECAST_FEATURES` in
 `src/climate_challenge/config.py`, estimates lead calibration from historical

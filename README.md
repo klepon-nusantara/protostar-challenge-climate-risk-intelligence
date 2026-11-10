@@ -87,11 +87,13 @@ python -m climate_challenge forecast
 `prepare` downloads and validates the original tables in `data/`, then queries
 Open-Elevation once per unique station if `data/elevation.parquet` is absent.
 It also spatially joins stations with the supplied NOAA climate division
-shapefile if `data/city_climate_divisions.parquet` is absent. Both datasets are
-cached as Parquet and are not currently model inputs. `backtest` compares
-methods using rolling time-based origins. `forecast` repeats the backtest for
-method selection, forecasts 2019–2025, and fills the submission template. To
-validate the generated submission independently, run:
+shapefile if `data/city_climate_divisions.parquet` is absent, and calculates
+nearest-coast distances from `data/ne_10m_coastline.zip` if
+`data/city_coastline_distances.parquet` is absent. The results are cached as
+Parquet and are not currently model inputs. `backtest` compares methods using
+rolling time-based origins. `forecast` repeats the backtest for method
+selection, forecasts 2019–2025, and fills the submission template. To validate
+the generated submission independently, run:
 
 ```bash
 python code/check_submission.py
@@ -135,6 +137,8 @@ hf upload ardacandrasubiantoro/klepon-nusantara-submission data/city_info.parque
 hf upload ardacandrasubiantoro/klepon-nusantara-submission data/elevation.parquet data/elevation.parquet --repo-type dataset
 hf upload ardacandrasubiantoro/klepon-nusantara-submission data/CONUS_CLIMATE_DIVISIONS.shp.zip data/CONUS_CLIMATE_DIVISIONS.shp.zip --repo-type dataset
 hf upload ardacandrasubiantoro/klepon-nusantara-submission data/city_climate_divisions.parquet data/city_climate_divisions.parquet --repo-type dataset
+hf upload ardacandrasubiantoro/klepon-nusantara-submission data/ne_10m_coastline.zip data/ne_10m_coastline.zip --repo-type dataset
+hf upload ardacandrasubiantoro/klepon-nusantara-submission data/city_coastline_distances.parquet data/city_coastline_distances.parquet --repo-type dataset
 ```
 
 The Parquet files are ignored by Git, so they are not included by uploading
@@ -145,7 +149,7 @@ version at submission time; submit again after any changes you want counted.
 
 ## Data
 
-- **External data:** Station elevation metadata is queried from the [Open-Elevation API](https://api.open-elevation.com/api/v1/lookup). Climate division boundaries are from [NOAA NCEI](https://www.ncei.noaa.gov/monitoring-content/data/us/climdiv/monthly/current/). Both are cached during `prepare` and are not currently used by the forecasting models. Weather forecast inputs come from the challenge's training dataset and end in 2018.
+- **External data:** Station elevation metadata is queried from the [Open-Elevation API](https://api.open-elevation.com/api/v1/lookup). Climate division boundaries are from [NOAA NCEI](https://www.ncei.noaa.gov/monitoring-content/data/us/climdiv/monthly/current/), and coastline data is from [Natural Earth](https://www.naturalearthdata.com/downloads/10m-physical-vectors/). Derived static geographic tables are cached during `prepare` and are not currently used by the forecasting models. Weather forecast inputs come from the challenge's training dataset and end in 2018.
 - **Curated data:** see the data card in [`data/README.md`](data/README.md) (each file, its source, license and preparation).
 
 Training data: [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), from:

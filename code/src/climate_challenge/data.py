@@ -17,6 +17,9 @@ TRAINING_REVISION = "bbbdebdab2a18e00f97ef87bd3f35a71e222180b"
 FORECAST_CUTOFF = pd.Timestamp("2018-12-31")
 OPEN_ELEVATION_URL = "https://api.open-elevation.com/api/v1/lookup"
 CLIMATE_DIVISIONS_ARCHIVE = "CONUS_CLIMATE_DIVISIONS.shp.zip"
+COASTLINE_ARCHIVE = "ne_10m_coastline.zip"
+COASTLINE_DISTANCE_CRS = "EPSG:5070"
+COASTLINE_CLIP_BOUNDS = (-140.0, 15.0, -50.0, 60.0)
 ORIGINAL_FILES = {
     "annual_indices": "annual_indices/train-00000-of-00001.parquet",
     "city_info": "city_info/train-00000-of-00001.parquet",
@@ -49,6 +52,7 @@ class PreparedDataset:
     city_info: pd.DataFrame
     elevation: pd.DataFrame
     city_climate_divisions: pd.DataFrame
+    city_coastline_distances: pd.DataFrame
     additional_sources: dict[str, pd.DataFrame]
     cutoff: pd.Timestamp
     data_dir: Path
@@ -340,6 +344,127 @@ def _load_city_climate_divisions(
     return result
 
 
+def _validate_city_coastline_distances(
+    distances: pd.DataFrame,
+    city_info: pd.DataFrame,
+) -> pd.DataFrame:
+    required = {"ID", "Name", "Lat", "Lon", "distance_to_coast_km"}
+    _validate_columns(distances, required, "city_coastline_distances")
+    result = distances.loc[:, sorted(required)].copy()
+    result["ID"] = result["ID"].astype("string")
+    result["distance_to_coast_km"] = pd.to_numeric(
+        result["distance_to_coast_km"], errors="coerce"
+    )
+    if result[["ID", "Name", "Lat", "Lon", "distance_to_coast_km"]].isna().any().any():
+        raise ValueError("city_coastline_distances contains missing values")
+    if (
+        not result["distance_to_coast_km"].map(math.isfinite).all()
+        or result["distance_to_coast_km"].lt(0).any()
+    ):
+        raise ValueError(
+            "city_coastline_distances contains invalid distance values"
+        )
+    if result["ID"].duplicated().any():
+        raise ValueError("city_coastline_distances contains duplicate station IDs")
+
+    expected = city_info.drop_duplicates("ID").loc[
+        :, ["ID", "Name", "Lat", "Lon"]
+    ].copy()
+    expected["ID"] = expected["ID"].astype("string")
+    if set(result["ID"]) != set(expected["ID"]):
+        raise ValueError(
+            "city_coastline_distances station IDs do not match city_info"
+        )
+    comparison = result.merge(
+        expected,
+        on="ID",
+        how="inner",
+        suffixes=("", "_expected"),
+        validate="one_to_one",
+    )
+    if not comparison["Name"].astype("string").equals(
+        comparison["Name_expected"].astype("string")
+    ):
+        raise ValueError("city_coastline_distances names do not match city_info")
+    for column in ("Lat", "Lon"):
+        if not pd.to_numeric(comparison[column], errors="coerce").equals(
+            pd.to_numeric(comparison[f"{column}_expected"], errors="coerce")
+        ):
+            raise ValueError(
+                f"city_coastline_distances {column} values do not match city_info"
+            )
+    return result.sort_values("ID", ignore_index=True)
+
+
+def _load_city_coastline_distances(
+    city_info: pd.DataFrame,
+    data_dir: Path,
+) -> pd.DataFrame:
+    local_path = data_dir / "city_coastline_distances.parquet"
+    if local_path.is_file():
+        return _validate_city_coastline_distances(
+            pd.read_parquet(local_path), city_info
+        )
+
+    archive_path = data_dir / COASTLINE_ARCHIVE
+    if not archive_path.is_file():
+        raise FileNotFoundError(f"Coastline archive not found: {archive_path}")
+
+    import geopandas as gpd
+    from shapely.geometry import box
+
+    locations = _city_locations(city_info)
+    city_names = city_info.drop_duplicates("ID").loc[:, ["ID", "Name"]].copy()
+    city_names["ID"] = city_names["ID"].astype("string")
+    cities = locations.merge(city_names, on="ID", how="left", validate="one_to_one")
+    city_points = gpd.GeoDataFrame(
+        cities,
+        geometry=gpd.points_from_xy(cities["Lon"], cities["Lat"]),
+        crs="EPSG:4326",
+    ).to_crs(COASTLINE_DISTANCE_CRS)
+
+    coastline = gpd.read_file(archive_path, engine="pyogrio")
+    if coastline.crs is None:
+        raise ValueError("Coastline shapefile has no coordinate reference system")
+    coastline = coastline.to_crs("EPSG:4326")
+    clip_bounds = box(*COASTLINE_CLIP_BOUNDS)
+    coastline.geometry = coastline.geometry.intersection(clip_bounds)
+    nonempty_geometries = coastline.geometry.apply(
+        lambda geometry: geometry is not None and not geometry.is_empty
+    )
+    coastline = coastline.loc[nonempty_geometries]
+    if coastline.empty:
+        raise ValueError("Coastline shapefile has no features in the CONUS region")
+    coastline = coastline.to_crs(COASTLINE_DISTANCE_CRS)
+    nearest = gpd.sjoin_nearest(
+        city_points,
+        coastline.loc[:, [coastline.geometry.name]],
+        how="left",
+        distance_col="distance_m",
+    )
+    nearest_distances = nearest.groupby("ID", sort=False)["distance_m"].min()
+    distances = pd.DataFrame(
+        {
+            "ID": cities["ID"].to_numpy(),
+            "Name": cities["Name"].to_numpy(),
+            "Lat": cities["Lat"].to_numpy(),
+            "Lon": cities["Lon"].to_numpy(),
+            "distance_to_coast_km": (
+                cities["ID"].map(nearest_distances).to_numpy() / 1000
+            ),
+        }
+    )
+    distances = _validate_city_coastline_distances(distances, city_info)
+
+    temporary_path = local_path.with_suffix(".parquet.download")
+    try:
+        distances.to_parquet(temporary_path, index=False)
+        temporary_path.replace(local_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return distances
+
+
 def prepare_dataset(
     additional_sources: Iterable[DataSource] = (),
     cutoff: str | pd.Timestamp = FORECAST_CUTOFF,
@@ -366,6 +491,9 @@ def prepare_dataset(
     city_climate_divisions = _load_city_climate_divisions(
         city_info, resolved_data_dir
     )
+    city_coastline_distances = _load_city_coastline_distances(
+        city_info, resolved_data_dir
+    )
 
     source_tables: dict[str, pd.DataFrame] = {}
     for source in additional_sources:
@@ -387,6 +515,7 @@ def prepare_dataset(
         city_info=city_info,
         elevation=elevation,
         city_climate_divisions=city_climate_divisions,
+        city_coastline_distances=city_coastline_distances,
         additional_sources=source_tables,
         cutoff=cutoff_timestamp,
         data_dir=resolved_data_dir,
