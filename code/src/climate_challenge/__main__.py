@@ -132,14 +132,7 @@ def main() -> None:
         oot_annual_indices = pd.read_parquet(oot_annual_path)
         city_info = pd.read_parquet(city_info_path)
         daily_observations = pd.read_parquet(daily_path)
-        baseline_backtest, baseline_scores, audit = run_oot_evaluation(
-            historical_annual_indices,
-            oot_annual_indices,
-            city_info,
-            origin=OOT_ORIGIN,
-            max_horizon=OOT_MAX_HORIZON,
-        )
-        daily_backtest, daily_scores, _ = run_oot_evaluation(
+        backtest, scores, audit = run_oot_evaluation(
             historical_annual_indices,
             oot_annual_indices,
             city_info,
@@ -151,17 +144,8 @@ def main() -> None:
         results_directory = repository_root / "results" / "oot_eval"
         log_path = append_oot_run_log(
             results_directory / "oot_eval.log",
-            baseline_backtest,
-            baseline_scores,
-            audit,
-            origin=OOT_ORIGIN,
-            input_paths=(historical_path, oot_annual_path, city_info_path),
-            run_label="annual-only baseline",
-        )
-        append_oot_run_log(
-            log_path,
-            daily_backtest,
-            daily_scores,
+            backtest,
+            scores,
             audit,
             origin=OOT_ORIGIN,
             input_paths=(
@@ -170,16 +154,10 @@ def main() -> None:
                 city_info_path,
                 daily_path,
             ),
-            run_label="daily feature groups",
+            run_label="annual + daily features",
         )
         predictions_path = results_directory / "predictions.csv"
-        pd.concat(
-            [
-                baseline_backtest.assign(run_label="annual-only baseline"),
-                daily_backtest.assign(run_label="daily feature groups"),
-            ],
-            ignore_index=True,
-        ).loc[
+        backtest.assign(run_label="annual + daily features").loc[
             :,
             lambda frame: [
                 column for column in frame if not column.startswith("_raw_")
@@ -187,32 +165,13 @@ def main() -> None:
         ].to_csv(predictions_path, index=False)
         print("OOT data quality audit:")
         print(audit.to_string())
-        baseline_pooled = evaluate_backtest(baseline_backtest).rename(
-            columns={"mae": "annual_only_mae"}
-        )
-        daily_pooled = evaluate_backtest(daily_backtest).rename(
-            columns={"mae": "daily_features_mae"}
-        )
-        comparison = baseline_pooled.merge(
-            daily_pooled[["metric", "method", "daily_features_mae"]],
-            on=["metric", "method"],
-            validate="one_to_one",
-        )
-        comparison["mae_change"] = (
-            comparison["daily_features_mae"] - comparison["annual_only_mae"]
-        )
         print(
             f"Fixed origin: {OOT_ORIGIN}; evaluated through "
-            f"{int(daily_backtest['target_year'].max())} "
-            f"({int(daily_backtest['h'].max())} observed forecast leads)."
+            f"{int(backtest['target_year'].max())} "
+            f"({int(backtest['h'].max())} observed forecast leads)."
         )
-        print("Pooled MAE comparison (daily_features_mae - annual_only_mae; lower is better):")
-        print(
-            comparison.to_string(
-                index=False, float_format=lambda value: f"{value:.3f}"
-            )
-        )
-        print(f"Appended baseline and daily-feature runs to {log_path}.")
+        print(scores.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
+        print(f"Appended annual + daily feature run to {log_path}.")
         print(f"Wrote OOT predictions to {predictions_path}.")
         return
 

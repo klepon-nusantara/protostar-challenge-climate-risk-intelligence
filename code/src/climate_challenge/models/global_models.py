@@ -319,7 +319,10 @@ def _spatial_anomaly(
 
     dlat = lat2 - lat1
     dlon = lon2 - lon1
-    a = np.sin(dlat / 2.0) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
+    a = (
+        np.sin(dlat / 2.0) ** 2
+        + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2.0) ** 2
+    )
     distance_km = 2 * 6371.0 * np.arcsin(np.sqrt(np.clip(a, 0.0, 1.0)))
     weights = np.exp(-0.5 * (distance_km / bandwidth_km) ** 2)
     np.fill_diagonal(weights, 0.0)
@@ -550,6 +553,9 @@ def fit_predict_origin(
                 + ", ".join(sorted(missing_features))
             )
         selected_features = requested_features
+    selected_features = [
+        column for column in selected_features if train[column].notna().any()
+    ]
 
     needs_ridge = bool(set(methods).intersection({"Ridge", "Ensemble"}))
     needs_lightgbm = bool(set(methods).intersection({"LightGBM", "Ensemble"}))

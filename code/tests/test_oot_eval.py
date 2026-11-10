@@ -277,6 +277,32 @@ class OotEvaluationTests(unittest.TestCase):
         self.assertNotIn("Ridge (Lead-Calibrated)", backtest.columns)
         self.assertIn("_raw_Ridge", backtest.columns)
         self.assertTrue(scores["n"].gt(0).all())
+        daily = pd.DataFrame(
+            [
+                {
+                    "ID": f"US{station_number:09d}",
+                    "Name": f"City {station_number}",
+                    "Date": pd.Timestamp(year=year, month=7, day=15),
+                    "tmax": 80.0 + station_number,
+                    "tmin": 60.0 + station_number,
+                    "prcp": float(station_number + year % 5),
+                }
+                for station_number in range(6)
+                for year in range(1980, 2019)
+            ]
+        )
+        daily_backtest, _, _ = run_oot_evaluation(
+            pd.DataFrame(historical_rows),
+            pd.DataFrame(oot_rows),
+            pd.DataFrame(cities),
+            model_config=GlobalModelConfig(
+                first_origin=1989,
+                lightgbm_estimators=3,
+                lightgbm_min_child_samples=5,
+            ),
+            daily_observations=daily,
+        )
+        self.assertIn("daily_jja_prcp_a5", daily_backtest.columns)
 
     def test_rejects_non_oot_years_in_oot_targets(self) -> None:
         historical = pd.DataFrame(
