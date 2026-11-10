@@ -3,6 +3,8 @@
 - `src/climate_challenge/data.py` downloads the challenge tables.
 - `src/climate_challenge/config.py` contains shared pipeline and model defaults.
 - `src/climate_challenge/cleaning.py` cleans annual indices and creates an audit.
+- Daily observations supply leakage-safe seasonal and annual weather features;
+  station-year coverage metadata is retained for data-quality analysis.
 - `src/climate_challenge/backtesting.py` runs rolling-origin backtests.
 - `src/climate_challenge/models/` contains the baseline and global model code.
 - `src/climate_challenge/evaluation.py` scores methods and selects a method per metric.
@@ -30,7 +32,13 @@ python -m climate_challenge backtest
 python -m climate_challenge forecast
 ```
 
-`prepare` downloads and validates the original tables in `data/`, queries
+`prepare` downloads and validates the annual indices, city metadata, daily
+observations, and station coverage tables from the pinned
+`CMU-OSPO/protostar-climate-train-to-2018` training dataset into `data/`.
+The daily observations are used to calculate origin-safe weather features for
+backtests and forecasts; their cutoff is validated at 2018-12-31. Station
+coverage is retained separately and is not joined into model features.
+`prepare` also queries
 Open-Elevation for each unique station if `data/elevation.parquet` is missing,
 and spatially joins station locations to
 `data/CONUS_CLIMATE_DIVISIONS.shp.zip` if
@@ -56,38 +64,14 @@ predicts 2019–2025, and writes the filled challenge template to `submission.cs
 It does not run a model-selection backtest. `FORECAST_FEATURES = None` uses all
 available features; set it to a tuple of feature names to restrict the feature
 list. `STATIC_FEATURES_BY_METRIC` then selects the static geography features
-used for each target; the same mapping is used by `backtest` and `oot_eval`.
+used for each target; the same mapping is used by `backtest` and `forecast`.
 The configured selection uses coast distance and climate-division peer
-anomalies for hottest-day temperature, and no static geography features for
-the other targets. This conservative selection retains the only measured
-improvement in the calibrated fixed-origin OOT evaluation. Forecast methods are
-configured separately by target metric. Lead
+anomalies for every target. Forecast methods are configured separately by
+target metric. Lead
 calibration is not applied to precipitation forecasts; precipitation is only
 clipped at zero to preserve the target's nonnegative domain.
 The notebooks are optional examples, not pipeline entry points.
 
-To extract daily observations and annual coverage/station tables from the
-manually supplied `data/7890488/` CSVs, run:
-
-```bash
-python -m climate_challenge.oot_eval.preprocessing
-```
-
-This writes historical `daily.parquet` and `coverage_and_stations.parquet`
-through 2018, plus corresponding `_oot` files starting in 2019. The `_oot`
-files are for analysis only and must not be used as forecast inputs. This
-command also writes the annual and station-period OOT files used by the fixed
-origin evaluation.
-
-When `data/daily.parquet` is present, backtesting and forecasting add daily
-features for seasonal temperature and precipitation, hot/cold/heavy-rain and
-wet-day frequencies, wet-day intensity, daily precipitation maxima, and dry
-spell length. Seasonal precipitation features also summarize wet-day frequency,
-wet-day intensity, and the 95th-percentile daily precipitation. Precipitation
-features include recent five- and ten-year means relative to each station's
-trailing 30-year daily-derived baseline. `oot_eval` compares these features
-against the annual-only model using only daily observations through the 2018
-origin; 2019-onward daily data is never loaded for features.
 When the static Parquet tables are present, model panels can include elevation,
 distance to coast, and leave-one-out state and climate-division anomaly
 features. The configured workflows select these static features by target;
@@ -101,7 +85,7 @@ options such as `--start-origin`, `--end-origin`, `--horizon`, `--template`, and
 `--output` override their corresponding defaults for one run. The data cutoff
 remains fixed to the challenge's 2018-12-31 forecast cutoff.
 
-The tables are also available as Python objects:
+The challenge tables are also available as Python objects:
 
 ```python
 from climate_challenge.data import prepare_dataset
@@ -109,6 +93,8 @@ from climate_challenge.data import prepare_dataset
 prepared = prepare_dataset()
 annual = prepared.annual_indices
 cities = prepared.city_info
+daily = prepared.daily
+coverage = prepared.coverage_and_stations
 ```
 
 Missing Parquet files are downloaded directly into the repository's `data/`

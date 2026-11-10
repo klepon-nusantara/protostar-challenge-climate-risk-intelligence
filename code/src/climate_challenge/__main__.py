@@ -23,18 +23,12 @@ from .data import (
 )
 from .evaluation import evaluate_backtest
 from .forecasting import forecast_all_stations
-from .oot_eval import (
-    OOT_MAX_HORIZON,
-    OOT_ORIGIN,
-    append_oot_run_log,
-    run_oot_evaluation,
-)
 from .submission import write_submission
 from .us_gdp import preprocess_us_gdp
 from .us_personal_income import preprocess_us_personal_income
 
 
-def _load_clean_data() -> tuple[PreparedDataset, CleaningResult, pd.DataFrame | None]:
+def _load_clean_data() -> tuple[PreparedDataset, CleaningResult, pd.DataFrame]:
     prepared = prepare_dataset()
     prepared.city_info = add_static_city_features(
         prepared.city_info,
@@ -45,18 +39,7 @@ def _load_clean_data() -> tuple[PreparedDataset, CleaningResult, pd.DataFrame | 
     cleaned = clean_annual_indices(prepared.annual_indices)
     print("Data quality audit:")
     print(cleaned.audit.to_string())
-    daily_path = prepared.data_dir / "daily.parquet"
-    daily_observations = (
-        pd.read_parquet(daily_path) if daily_path.is_file() else None
-    )
-    if daily_observations is None:
-        print(
-            f"Daily feature data not found at {daily_path}; "
-            "using annual-only model features."
-        )
-    else:
-        print(f"Using daily feature data from {daily_path}.")
-    return prepared, cleaned, daily_observations
+    return prepared, cleaned, prepared.daily
 
 
 def _add_backtest_arguments(parser: argparse.ArgumentParser) -> None:
@@ -98,13 +81,6 @@ def build_parser() -> argparse.ArgumentParser:
         default=Path(DEFAULT_CONFIG.submission.output_path),
     )
 
-    oot_parser = commands.add_parser(
-        "oot_eval",
-        help="evaluate every model at the fixed 2018 origin on later observations",
-    )
-    oot_parser.add_argument(
-        "--data-dir", type=Path, default=Path("data")
-    )
     return parser
 
 
@@ -158,92 +134,6 @@ def main() -> None:
                 f"Preprocessed {len(personal_income_tables)} annual BEA personal "
                 f"income tables in {personal_income_directory}."
             )
-        return
-
-    if command == "oot_eval":
-        historical_path = args.data_dir / "annual_indices.parquet"
-        oot_annual_path = args.data_dir / "annual_indices_oot.parquet"
-        city_info_path = args.data_dir / "city_info.parquet"
-        daily_path = args.data_dir / "daily.parquet"
-        elevation_path = args.data_dir / "elevation.parquet"
-        divisions_path = args.data_dir / "city_climate_divisions.parquet"
-        coastline_distances_path = args.data_dir / "city_coastline_distances.parquet"
-        missing_paths = [
-            path
-            for path in (
-                historical_path,
-                oot_annual_path,
-                city_info_path,
-                daily_path,
-                elevation_path,
-                divisions_path,
-                coastline_distances_path,
-            )
-            if not path.is_file()
-        ]
-        if missing_paths:
-            parser.error(
-                "missing OOT Parquet input(s): "
-                + ", ".join(str(path) for path in missing_paths)
-                + "; first run python -m climate_challenge prepare and "
-                "python -m climate_challenge.oot_eval.preprocessing"
-            )
-        historical_annual_indices = pd.read_parquet(historical_path)
-        oot_annual_indices = pd.read_parquet(oot_annual_path)
-        city_info = add_static_city_features(
-            pd.read_parquet(city_info_path),
-            pd.read_parquet(elevation_path),
-            pd.read_parquet(divisions_path),
-            pd.read_parquet(coastline_distances_path),
-        )
-        daily_observations = pd.read_parquet(daily_path)
-        backtest, scores, audit = run_oot_evaluation(
-            historical_annual_indices,
-            oot_annual_indices,
-            city_info,
-            origin=OOT_ORIGIN,
-            max_horizon=OOT_MAX_HORIZON,
-            daily_observations=daily_observations,
-            static_features_by_metric=STATIC_FEATURES_BY_METRIC,
-        )
-        repository_root = Path(__file__).resolve().parents[3]
-        results_directory = repository_root / "results" / "oot_eval"
-        log_path = append_oot_run_log(
-            results_directory / "oot_eval.log",
-            backtest,
-            scores,
-            audit,
-            origin=OOT_ORIGIN,
-            input_paths=(
-                historical_path,
-                oot_annual_path,
-                city_info_path,
-                daily_path,
-                elevation_path,
-                divisions_path,
-                coastline_distances_path,
-            ),
-            run_label="annual + daily + static geographic features",
-        )
-        predictions_path = results_directory / "predictions.csv"
-        backtest.assign(
-            run_label="annual + daily + static geographic features"
-        ).loc[
-            :,
-            lambda frame: [
-                column for column in frame if not column.startswith("_raw_")
-            ],
-        ].to_csv(predictions_path, index=False)
-        print("OOT data quality audit:")
-        print(audit.to_string())
-        print(
-            f"Fixed origin: {OOT_ORIGIN}; evaluated through "
-            f"{int(backtest['target_year'].max())} "
-            f"({int(backtest['h'].max())} observed forecast leads)."
-        )
-        print(scores.to_string(index=False, float_format=lambda value: f"{value:.3f}"))
-        print(f"Appended annual, daily, and static feature run to {log_path}.")
-        print(f"Wrote OOT predictions to {predictions_path}.")
         return
 
     if args.start_origin > args.end_origin:
@@ -318,9 +208,8 @@ def main() -> None:
         input_paths = (
             prepared.data_dir / "annual_indices.parquet",
             prepared.data_dir / "city_info.parquet",
+            prepared.data_dir / "daily.parquet",
         )
-        if daily_observations is not None:
-            input_paths += (prepared.data_dir / "daily.parquet",)
         log_path = append_backtest_run_log(
             results_directory / "backtest.log",
             backtest,

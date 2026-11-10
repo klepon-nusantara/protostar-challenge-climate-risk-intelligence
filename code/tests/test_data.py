@@ -36,6 +36,26 @@ class PrepareDatasetTests(unittest.TestCase):
             }
         ).to_parquet(self.data_dir / "city_info.parquet")
         pd.DataFrame(
+            {
+                "Name": ["Example"],
+                "ID": ["US000000001"],
+                "Date": [pd.Timestamp("2018-12-31")],
+                "tmax": [50.0],
+                "tmin": [30.0],
+                "prcp": [0.0],
+            }
+        ).to_parquet(self.data_dir / "daily.parquet")
+        pd.DataFrame(
+            {
+                "Name": ["Example"],
+                "ID": ["US000000001"],
+                "Year": [2018],
+                "Days Both": [365],
+                "Station Segment": [1],
+                "Station Changes": [0],
+            }
+        ).to_parquet(self.data_dir / "coverage_and_stations.parquet")
+        pd.DataFrame(
             {"ID": ["US000000001"], "elevation_m": [250.0]}
         ).to_parquet(self.data_dir / "elevation.parquet")
         pd.DataFrame(
@@ -64,6 +84,10 @@ class PrepareDatasetTests(unittest.TestCase):
         open_url.assert_not_called()
         self.assertEqual(prepared.annual_indices.loc[0, "Year"], 2018)
         self.assertIn("US000000001", prepared.city_info["ID"].tolist())
+        self.assertEqual(prepared.daily.loc[0, "Date"], pd.Timestamp("2018-12-31"))
+        self.assertEqual(
+            prepared.coverage_and_stations.loc[0, "Days Both"], 365
+        )
         self.assertEqual(prepared.elevation.loc[0, "elevation_m"], 250.0)
         self.assertEqual(
             prepared.city_climate_divisions.loc[0, "division_CLIMDIV"], "0101"
@@ -182,6 +206,26 @@ class PrepareDatasetTests(unittest.TestCase):
                     "Lon": [-80.0],
                 }
             ),
+            "daily": pd.DataFrame(
+                {
+                    "Name": ["Example"],
+                    "ID": ["US000000001"],
+                    "Date": [pd.Timestamp("2018-12-31")],
+                    "tmax": [50.0],
+                    "tmin": [30.0],
+                    "prcp": [0.0],
+                }
+            ),
+            "coverage_and_stations": pd.DataFrame(
+                {
+                    "Name": ["Example"],
+                    "ID": ["US000000001"],
+                    "Year": [2018],
+                    "Days Both": [365],
+                    "Station Segment": [1],
+                    "Station Changes": [0],
+                }
+            ),
         }
         responses: dict[str, bytes] = {}
         for name, frame in tables.items():
@@ -234,6 +278,36 @@ class PrepareDatasetTests(unittest.TestCase):
         self.assertEqual(prepared.elevation.loc[0, "elevation_m"], 250.0)
         self.assertEqual(len(prepared.city_climate_divisions), 1)
         self.assertEqual(len(prepared.annual_indices), 1)
+        self.assertEqual(len(prepared.daily), 1)
+        self.assertEqual(len(prepared.coverage_and_stations), 1)
+        self.assertEqual((self.data_dir / "daily.parquet").read_bytes(), responses["daily"])
+        self.assertEqual(
+            (self.data_dir / "coverage_and_stations.parquet").read_bytes(),
+            responses["coverage_and_stations"],
+        )
+
+    def test_rejects_daily_observations_after_cutoff(self) -> None:
+        pd.DataFrame(
+            {
+                "Name": ["Example"],
+                "ID": ["US000000001"],
+                "Date": [pd.Timestamp("2019-01-01")],
+                "tmax": [50.0],
+                "tmin": [30.0],
+                "prcp": [0.0],
+            }
+        ).to_parquet(self.data_dir / "daily.parquet")
+
+        with self.assertRaisesRegex(ValueError, "after the forecast cutoff"):
+            prepare_dataset(data_dir=self.data_dir)
+
+    def test_rejects_coverage_after_cutoff(self) -> None:
+        coverage = pd.read_parquet(self.data_dir / "coverage_and_stations.parquet")
+        coverage["Year"] = 2019
+        coverage.to_parquet(self.data_dir / "coverage_and_stations.parquet")
+
+        with self.assertRaisesRegex(ValueError, "after the forecast cutoff"):
+            prepare_dataset(data_dir=self.data_dir)
 
 
 if __name__ == "__main__":

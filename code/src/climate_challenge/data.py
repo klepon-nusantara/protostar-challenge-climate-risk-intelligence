@@ -23,10 +23,21 @@ COASTLINE_CLIP_BOUNDS = (-140.0, 15.0, -50.0, 60.0)
 ORIGINAL_FILES = {
     "annual_indices": "annual_indices/train-00000-of-00001.parquet",
     "city_info": "city_info/train-00000-of-00001.parquet",
+    "daily": "daily/train-00000-of-00001.parquet",
+    "coverage_and_stations": "coverage_and_stations/train-00000-of-00001.parquet",
 }
 
 ANNUAL_REQUIRED_COLUMNS = {"Name", "ID", "Year"}
 CITY_REQUIRED_COLUMNS = {"Name", "ID", "Lat", "Lon"}
+DAILY_REQUIRED_COLUMNS = {"ID", "Name", "Date", "tmax", "tmin", "prcp"}
+COVERAGE_REQUIRED_COLUMNS = {
+    "ID",
+    "Name",
+    "Year",
+    "Days Both",
+    "Station Segment",
+    "Station Changes",
+}
 
 
 @dataclass(frozen=True)
@@ -50,6 +61,8 @@ class PreparedDataset:
 
     annual_indices: pd.DataFrame
     city_info: pd.DataFrame
+    daily: pd.DataFrame
+    coverage_and_stations: pd.DataFrame
     elevation: pd.DataFrame
     city_climate_divisions: pd.DataFrame
     city_coastline_distances: pd.DataFrame
@@ -87,6 +100,39 @@ def _validate_annual_cutoff(
         latest_year = int(years.max())
         raise ValueError(
             f"annual_indices contains weather data through {latest_year}, "
+            f"after the forecast cutoff {cutoff.date()}"
+        )
+
+
+def _validate_daily_cutoff(
+    daily: pd.DataFrame, cutoff: pd.Timestamp
+) -> None:
+    _validate_columns(daily, DAILY_REQUIRED_COLUMNS, "daily")
+    dates = pd.to_datetime(daily["Date"], errors="coerce")
+    if dates.isna().any():
+        raise ValueError("daily contains missing or invalid Date values")
+    if (dates > cutoff).any():
+        latest_date = dates.max().date()
+        raise ValueError(
+            f"daily contains weather data through {latest_date}, "
+            f"after the forecast cutoff {cutoff.date()}"
+        )
+
+
+def _validate_coverage_cutoff(
+    coverage: pd.DataFrame, cutoff: pd.Timestamp
+) -> None:
+    _validate_columns(coverage, COVERAGE_REQUIRED_COLUMNS, "coverage_and_stations")
+    years = pd.to_numeric(coverage["Year"], errors="coerce")
+    if years.isna().any():
+        raise ValueError(
+            "coverage_and_stations contains missing or invalid Year values"
+        )
+    last_complete_year = _last_complete_year(cutoff)
+    if (years > last_complete_year).any():
+        latest_year = int(years.max())
+        raise ValueError(
+            f"coverage_and_stations contains data through {latest_year}, "
             f"after the forecast cutoff {cutoff.date()}"
         )
 
@@ -515,9 +561,15 @@ def prepare_dataset(
     resolved_data_dir = Path(data_dir) if data_dir is not None else _default_data_dir()
     annual_indices = _load_original_table("annual_indices", resolved_data_dir)
     city_info = _load_original_table("city_info", resolved_data_dir)
+    daily = _load_original_table("daily", resolved_data_dir)
+    coverage_and_stations = _load_original_table(
+        "coverage_and_stations", resolved_data_dir
+    )
 
     _validate_annual_cutoff(annual_indices, cutoff_timestamp)
     _validate_columns(city_info, CITY_REQUIRED_COLUMNS, "city_info")
+    _validate_daily_cutoff(daily, cutoff_timestamp)
+    _validate_coverage_cutoff(coverage_and_stations, cutoff_timestamp)
     elevation = _load_elevation_table(city_info, resolved_data_dir)
     city_climate_divisions = _load_city_climate_divisions(
         city_info, resolved_data_dir
@@ -544,6 +596,8 @@ def prepare_dataset(
     return PreparedDataset(
         annual_indices=annual_indices,
         city_info=city_info,
+        daily=daily,
+        coverage_and_stations=coverage_and_stations,
         elevation=elevation,
         city_climate_divisions=city_climate_divisions,
         city_coastline_distances=city_coastline_distances,

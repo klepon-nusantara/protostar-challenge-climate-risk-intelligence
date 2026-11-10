@@ -439,6 +439,22 @@ class CleaningAndEvaluationTests(unittest.TestCase):
     def test_backtest_and_final_submission_pipeline(self) -> None:
         annual, city_info = make_dataset()
         cleaned = clean_annual_indices(annual).data
+        daily = pd.DataFrame(
+            [
+                {
+                    "ID": station_id,
+                    "Date": pd.Timestamp(year=year, month=month, day=15),
+                    "tmax": 80.0 + station_number,
+                    "tmin": 60.0 + station_number,
+                    "prcp": 0.1 * (station_number + 1),
+                }
+                for station_number, station_id in enumerate(
+                    city_info["ID"].astype(str)
+                )
+                for year in range(1981, 2019)
+                for month in (1, 7)
+            ]
+        )
         config = GlobalModelConfig(
             first_origin=1989,
             lightgbm_estimators=10,
@@ -450,6 +466,7 @@ class CleaningAndEvaluationTests(unittest.TestCase):
             origins=[2010],
             horizon=7,
             model_config=config,
+            daily_observations=daily,
         )
         metrics = evaluate_backtest(backtest)
         methods = select_best_methods(backtest)
@@ -461,6 +478,7 @@ class CleaningAndEvaluationTests(unittest.TestCase):
             horizon=7,
             model_config=config,
             use_sparse_fallback=False,
+            daily_observations=daily,
         )
         template = pd.MultiIndex.from_product(
             [

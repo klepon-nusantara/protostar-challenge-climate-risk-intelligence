@@ -23,8 +23,7 @@ FORECAST_METHODS = {
     "hottest_day_temp": "Ridge",
     "total_precip_in": "LightGBM",
 }
-# Retain static features only for targets where the calibrated 2018 OOT
-# evaluation improved MAE. Empty tuples retain the annual/daily baseline.
+# Static geography features included for each forecast metric.
 STATIC_FEATURES_BY_METRIC = {
     "annual_avg_temp": ("distance_to_coast_km", "climate_division_anomaly"),
     "cdd": ("distance_to_coast_km", "climate_division_anomaly"),

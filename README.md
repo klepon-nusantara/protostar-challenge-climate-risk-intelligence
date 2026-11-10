@@ -31,13 +31,13 @@ Forecasts of yearly weather for 210 U.S. cities, 2019–2025, made as of the end
 ## Method
 
 - **Model:** Global Ridge and LightGBM models predict each station's deviation from its trailing 30-year mean. Per-metric model selection uses pooled MAE from rolling-origin backtests.
-- **Features:** Trailing 5- and 10-year averages relative to the 30-year baseline, 30-year and 10-year trends, trend acceleration, missing-history age, station coordinates, neighboring-station anomaly, regional anomalies, and one-hot region indicators. The OOT/forecast models additionally use nearest-coast distance and climate-division peer anomalies for hottest-day temperature; other static features were excluded after their OOT MAE failed to improve.
+- **Features:** Trailing 5- and 10-year averages relative to the 30-year baseline, 30-year and 10-year trends, trend acceleration, missing-history age, station coordinates, neighboring-station anomaly, regional anomalies, one-hot region indicators, nearest-coast distance, and climate-division peer anomalies.
 - **How we checked it:** Rolling-origin backtests use origins from 1995 through 2011, predicting up to seven years ahead and scoring against observations through 2018. The selected method is chosen separately for each metric. Run `python -m climate_challenge backtest` to reproduce the scores.
 
 ## AI Tools and Agents
 
 - **Tools and models:** Copilot in VS Code.
-- **What they did:** Helped inspect exploratory notebooks, implement model features from cached static geography, and run OOT evaluations and tests. It did not generate forecast values.
+- **What they did:** Helped inspect exploratory notebooks, implement model features from cached static geography, and run rolling-origin backtests and tests. It did not generate forecast values.
 - **What a person reviewed:** A team member reviewed code changes and outputs.
 - **Agent instructions file:** [`code/AGENTS.md`](code/AGENTS.md).
 
@@ -98,8 +98,8 @@ It also spatially joins stations with the supplied NOAA climate division
 shapefile if `data/city_climate_divisions.parquet` is absent, and calculates
 nearest-coast distances from `data/ne_10m_coastline.zip` if
 `data/city_coastline_distances.parquet` is absent. The results are cached as
-Parquet. The OOT and forecast workflows join these tables to station metadata
-and apply target-specific static features. `backtest` compares methods using
+Parquet. The forecasting workflow joins these tables to station metadata
+and applies target-specific static features. `backtest` compares methods using
 rolling time-based origins. `forecast` repeats the backtest for method
 selection, forecasts 2019–2025, and fills the submission template. To validate
 the generated submission independently, run:
@@ -164,6 +164,4 @@ version at submission time; submit again after any changes you want counted.
 - **Curated data:** see the data card in [`data/README.md`](data/README.md) (each file, its source, license and preparation).
 
 Training data: [`CMU-OSPO/protostar-climate-train-to-2018`](https://huggingface.co/datasets/CMU-OSPO/protostar-climate-train-to-2018), from:
-
-- Lai, Y., & Dzombak, D. A. (2019). Compiled historical daily temperature and precipitation data for selected 210 U.S. cities. Carnegie Mellon University. https://doi.org/10.1184/R1/7890488.v6
 - Lai, Y., & Dzombak, D. A. (2019). *Use of historical data to assess regional climate change.* Journal of Climate, 32(14), 4299–4320. https://doi.org/10.1175/JCLI-D-18-0630.1

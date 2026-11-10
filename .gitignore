@@ -24,5 +24,4 @@ venv/
 # Local data files
 data/*
 /results/
-/oot_eval.log
 submission_check.py
