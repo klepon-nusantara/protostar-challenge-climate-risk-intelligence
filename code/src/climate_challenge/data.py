@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
+import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from shutil import copyfileobj
 from typing import Callable, Iterable
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 import pandas as pd
 
 TRAINING_REPOSITORY = "CMU-OSPO/protostar-climate-train-to-2018"
 TRAINING_REVISION = "bbbdebdab2a18e00f97ef87bd3f35a71e222180b"
 FORECAST_CUTOFF = pd.Timestamp("2018-12-31")
+OPEN_ELEVATION_URL = "https://api.open-elevation.com/api/v1/lookup"
 ORIGINAL_FILES = {
     "annual_indices": "annual_indices/train-00000-of-00001.parquet",
     "city_info": "city_info/train-00000-of-00001.parquet",
@@ -43,6 +46,7 @@ class PreparedDataset:
 
     annual_indices: pd.DataFrame
     city_info: pd.DataFrame
+    elevation: pd.DataFrame
     additional_sources: dict[str, pd.DataFrame]
     cutoff: pd.Timestamp
     data_dir: Path
@@ -148,6 +152,86 @@ def _load_original_table(table_name: str, data_dir: Path) -> pd.DataFrame:
     return pd.read_parquet(local_path)
 
 
+def _city_locations(city_info: pd.DataFrame) -> pd.DataFrame:
+    locations = (
+        city_info.loc[:, ["ID", "Lat", "Lon"]]
+        .drop_duplicates(subset=["ID"])
+        .copy()
+    )
+    locations["ID"] = locations["ID"].astype("string")
+    locations["Lat"] = pd.to_numeric(locations["Lat"], errors="coerce")
+    locations["Lon"] = pd.to_numeric(locations["Lon"], errors="coerce")
+    if locations[["ID", "Lat", "Lon"]].isna().any().any():
+        raise ValueError("city_info contains missing or invalid IDs or coordinates")
+    if (
+        ~locations["Lat"].between(-90, 90)
+        | ~locations["Lon"].between(-180, 180)
+    ).any():
+        raise ValueError("city_info contains coordinates outside valid ranges")
+    return locations.reset_index(drop=True)
+
+
+def _validate_elevation(
+    elevation: pd.DataFrame, locations: pd.DataFrame
+) -> pd.DataFrame:
+    required = {"ID", "elevation_m"}
+    _validate_columns(elevation, required, "elevation")
+    result = elevation.loc[:, ["ID", "elevation_m"]].copy()
+    result["ID"] = result["ID"].astype("string")
+    result["elevation_m"] = pd.to_numeric(result["elevation_m"], errors="coerce")
+    if result[["ID", "elevation_m"]].isna().any().any():
+        raise ValueError("elevation contains missing or invalid IDs or values")
+    if not result["elevation_m"].map(math.isfinite).all():
+        raise ValueError("elevation contains non-finite elevation_m values")
+    if result["ID"].duplicated().any():
+        raise ValueError("elevation contains duplicate station IDs")
+    if set(result["ID"]) != set(locations["ID"]):
+        raise ValueError("elevation station IDs do not match city_info")
+    return result
+
+
+def _load_elevation_table(city_info: pd.DataFrame, data_dir: Path) -> pd.DataFrame:
+    local_path = data_dir / "elevation.parquet"
+    locations = _city_locations(city_info)
+    if local_path.is_file():
+        return _validate_elevation(pd.read_parquet(local_path), locations)
+
+    payload = {
+        "locations": [
+            {"latitude": row.Lat, "longitude": row.Lon}
+            for row in locations.itertuples(index=False)
+        ]
+    }
+    request = Request(
+        OPEN_ELEVATION_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urlopen(request, timeout=30) as response:
+        response_data = json.loads(response.read())
+
+    results = response_data.get("results") if isinstance(response_data, dict) else None
+    if not isinstance(results, list) or len(results) != len(locations):
+        raise ValueError(
+            "Open-Elevation returned an unexpected number of elevation results"
+        )
+    elevation = locations.loc[:, ["ID"]].copy()
+    elevation["elevation_m"] = [
+        result.get("elevation") if isinstance(result, dict) else None
+        for result in results
+    ]
+    elevation = _validate_elevation(elevation, locations)
+    data_dir.mkdir(parents=True, exist_ok=True)
+    temporary_path = local_path.with_suffix(".parquet.download")
+    try:
+        elevation.to_parquet(temporary_path, index=False)
+        temporary_path.replace(local_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return elevation
+
+
 def prepare_dataset(
     additional_sources: Iterable[DataSource] = (),
     cutoff: str | pd.Timestamp = FORECAST_CUTOFF,
@@ -170,6 +254,7 @@ def prepare_dataset(
 
     _validate_annual_cutoff(annual_indices, cutoff_timestamp)
     _validate_columns(city_info, CITY_REQUIRED_COLUMNS, "city_info")
+    elevation = _load_elevation_table(city_info, resolved_data_dir)
 
     source_tables: dict[str, pd.DataFrame] = {}
     for source in additional_sources:
@@ -189,6 +274,7 @@ def prepare_dataset(
     return PreparedDataset(
         annual_indices=annual_indices,
         city_info=city_info,
+        elevation=elevation,
         additional_sources=source_tables,
         cutoff=cutoff_timestamp,
         data_dir=resolved_data_dir,

@@ -30,6 +30,12 @@ python -m climate_challenge backtest
 python -m climate_challenge forecast
 ```
 
+`prepare` downloads and validates the original tables in `data/`, queries
+Open-Elevation for each unique station if `data/elevation.parquet` is missing,
+and caches the result as Parquet. Subsequent runs reuse the local file. The
+table is exposed as `prepared.elevation` and is not automatically joined into
+model features.
+
 `forecast` uses `FORECAST_METHODS` and `FORECAST_FEATURES` in
 `src/climate_challenge/config.py`, estimates lead calibration from historical
 backtests for only those configured methods, fits them through the 2018 origin,
@@ -84,22 +90,23 @@ cities = prepared.city_info
 
 Missing Parquet files are downloaded directly into the repository's `data/`
 directory. Subsequent runs read those local files. Additional feature sources
-can be supplied as `DataSource` objects. Their loaders receive the forecast
-cutoff and should apply it to any download query. Weather-dependent sources
-must declare their date column; records after the cutoff are rejected. Sources
-are returned separately so callers can join each one using an explicit key.
+can also be supplied as `DataSource` objects. Their loaders receive the
+forecast cutoff and should apply it to any download query. Weather-dependent
+sources must declare their date column; records after the cutoff are rejected.
+Sources are returned separately so callers can join each one using an explicit
+key.
 
 ```python
 import pandas as pd
 
 from climate_challenge.data import DataSource, prepare_dataset
 
-elevation = DataSource(
-    name="elevation",
-    loader=lambda cutoff: pd.read_csv("data/elevation.csv"),
+site_features = DataSource(
+    name="site_features",
+    loader=lambda cutoff: pd.read_csv("data/site_features.csv"),
     weather_dependent=False,
 )
-prepared = prepare_dataset(additional_sources=[elevation])
+prepared = prepare_dataset(additional_sources=[site_features])
 ```
 
 Run the unit tests from the repository root with:

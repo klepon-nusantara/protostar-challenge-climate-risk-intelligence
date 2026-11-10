@@ -1,3 +1,4 @@
+import json
 from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -32,12 +33,18 @@ class PrepareDatasetTests(unittest.TestCase):
                 "Lon": [-80.0],
             }
         ).to_parquet(self.data_dir / "city_info.parquet")
+        pd.DataFrame(
+            {"ID": ["US000000001"], "elevation_m": [250.0]}
+        ).to_parquet(self.data_dir / "elevation.parquet")
 
     def test_loads_challenge_tables_from_data_directory(self) -> None:
-        prepared = prepare_dataset(data_dir=self.data_dir)
+        with patch("climate_challenge.data.urlopen") as open_url:
+            prepared = prepare_dataset(data_dir=self.data_dir)
 
+        open_url.assert_not_called()
         self.assertEqual(prepared.annual_indices.loc[0, "Year"], 2018)
         self.assertIn("US000000001", prepared.city_info["ID"].tolist())
+        self.assertEqual(prepared.elevation.loc[0, "elevation_m"], 250.0)
         self.assertEqual(len(prepared.additional_sources), 0)
         self.assertEqual(prepared.data_dir, self.data_dir)
 
@@ -111,7 +118,12 @@ class PrepareDatasetTests(unittest.TestCase):
             frame.to_parquet(buffer)
             responses[name] = buffer.getvalue()
 
-        def fake_urlopen(url: str) -> BytesIO:
+        def fake_urlopen(request: object, timeout: int = 30) -> BytesIO:
+            url = getattr(request, "full_url", request)
+            if url == "https://api.open-elevation.com/api/v1/lookup":
+                return BytesIO(
+                    json.dumps({"results": [{"elevation": 250.0}]}).encode()
+                )
             for name, relative_path in ORIGINAL_FILES.items():
                 if f"/{relative_path}" in url:
                     return BytesIO(responses[name])
@@ -122,6 +134,8 @@ class PrepareDatasetTests(unittest.TestCase):
 
         self.assertTrue((self.data_dir / "annual_indices.parquet").exists())
         self.assertTrue((self.data_dir / "city_info.parquet").exists())
+        self.assertTrue((self.data_dir / "elevation.parquet").exists())
+        self.assertEqual(prepared.elevation.loc[0, "elevation_m"], 250.0)
         self.assertEqual(len(prepared.annual_indices), 1)
 
 
