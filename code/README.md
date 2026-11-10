@@ -36,7 +36,9 @@ backtests for only those configured methods, fits them through the 2018 origin,
 predicts 2019–2025, and writes the filled challenge template to `submission.csv`.
 It does not run a model-selection backtest. `FORECAST_FEATURES = None` uses all
 available features; set it to a tuple of feature names to restrict the feature
-list. Forecast methods are configured separately by target metric.
+list. Forecast methods are configured separately by target metric. Lead
+calibration is not applied to precipitation forecasts; precipitation is only
+clipped at zero to preserve the target's nonnegative domain.
 The notebooks are optional examples, not pipeline entry points.
 
 To extract daily observations and annual coverage/station tables from the

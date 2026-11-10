@@ -95,7 +95,9 @@ class CleaningAndEvaluationTests(unittest.TestCase):
         np.testing.assert_allclose(calibrated["Last Year"], [96.0, 193.0])
         np.testing.assert_allclose(calibrated["_raw_Last Year"], [100.0, 200.0])
 
-    def test_lead_calibration_preserves_nonnegative_targets(self) -> None:
+    def test_lead_calibration_skips_precipitation_and_preserves_nonnegative_values(
+        self,
+    ) -> None:
         calibration = pd.DataFrame(
             {
                 "origin": [2000],
@@ -111,10 +113,10 @@ class CleaningAndEvaluationTests(unittest.TestCase):
         )
         target = pd.DataFrame(
             {
-                "metric": ["total_precip_in"],
-                "h": [1],
+                "metric": ["total_precip_in", "total_precip_in"],
+                "h": [1, 1],
                 **{
-                    method: [2.0]
+                    method: [2.0, -2.0]
                     for method in MODEL_METHODS
                 },
             }
@@ -122,7 +124,7 @@ class CleaningAndEvaluationTests(unittest.TestCase):
 
         calibrated = apply_lead_calibration(target, calibration)
 
-        self.assertEqual(calibrated.loc[0, "Last Year"], 0.0)
+        np.testing.assert_allclose(calibrated["Last Year"], [2.0, 0.0])
 
     def test_backtest_run_log_appends_configuration_and_scores(self) -> None:
         with TemporaryDirectory() as temporary_directory:

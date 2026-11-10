@@ -177,9 +177,10 @@ def _apply_lead_calibration(
 
         keys = pd.MultiIndex.from_frame(predictions[["metric", "h"]])
         corrections = bias.reindex(keys).fillna(0.0).to_numpy()
-        calibrated = predictions[raw_column] - pd.Series(
-            corrections, index=predictions.index
-        )
+        correction = pd.Series(corrections, index=predictions.index)
+        precipitation = predictions["metric"].eq("total_precip_in")
+        correction = correction.mask(precipitation, 0.0)
+        calibrated = predictions[raw_column] - correction
         nonnegative = predictions["metric"].isin(
             {"total_precip_in", "cdd"}
         )
@@ -193,7 +194,7 @@ def apply_lead_calibration(
     calibration_predictions: pd.DataFrame,
     methods: tuple[str, ...] = BASE_MODEL_METHODS,
 ) -> pd.DataFrame:
-    """Return default method predictions corrected by historical lead-specific bias."""
+    """Apply historical lead bias except to precipitation; preserve nonnegative targets."""
 
     result = predictions.copy()
     _apply_lead_calibration(result, calibration_predictions, methods=methods)
