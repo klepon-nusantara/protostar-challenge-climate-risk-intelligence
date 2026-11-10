@@ -32,9 +32,12 @@ python -m climate_challenge forecast
 
 `prepare` downloads and validates the original tables in `data/`, queries
 Open-Elevation for each unique station if `data/elevation.parquet` is missing,
-and caches the result as Parquet. Subsequent runs reuse the local file. The
-table is exposed as `prepared.elevation` and is not automatically joined into
-model features.
+and spatially joins station locations to
+`data/CONUS_CLIMATE_DIVISIONS.shp.zip` if
+`data/city_climate_divisions.parquet` is missing. Both datasets are cached as
+Parquet and exposed as `prepared.elevation` and
+`prepared.city_climate_divisions`; neither is automatically joined into model
+features.
 
 `forecast` uses `FORECAST_METHODS` and `FORECAST_FEATURES` in
 `src/climate_challenge/config.py`, estimates lead calibration from historical

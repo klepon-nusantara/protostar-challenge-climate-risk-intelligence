@@ -103,7 +103,9 @@ def main() -> None:
             f"(annual_indices: {len(prepared.annual_indices):,} rows, "
             f"{int(years.min())}-{int(years.max())}; "
             f"city_info: {len(prepared.city_info):,} rows; "
-            f"elevation: {len(prepared.elevation):,} stations)."
+            f"elevation: {len(prepared.elevation):,} stations; "
+            f"city climate divisions: "
+            f"{len(prepared.city_climate_divisions):,} stations)."
         )
         print(f"Parquet files are stored in {prepared.data_dir}.")
         return

@@ -5,7 +5,9 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
+import geopandas as gpd
 import pandas as pd
+from shapely.geometry import box
 
 from climate_challenge.data import DataSource, ORIGINAL_FILES, prepare_dataset
 
@@ -36,6 +38,15 @@ class PrepareDatasetTests(unittest.TestCase):
         pd.DataFrame(
             {"ID": ["US000000001"], "elevation_m": [250.0]}
         ).to_parquet(self.data_dir / "elevation.parquet")
+        pd.DataFrame(
+            {
+                "ID": ["US000000001"],
+                "Name": ["Example"],
+                "Lat": [40.0],
+                "Lon": [-80.0],
+                "division_CLIMDIV": ["0101"],
+            }
+        ).to_parquet(self.data_dir / "city_climate_divisions.parquet")
 
     def test_loads_challenge_tables_from_data_directory(self) -> None:
         with patch("climate_challenge.data.urlopen") as open_url:
@@ -45,8 +56,31 @@ class PrepareDatasetTests(unittest.TestCase):
         self.assertEqual(prepared.annual_indices.loc[0, "Year"], 2018)
         self.assertIn("US000000001", prepared.city_info["ID"].tolist())
         self.assertEqual(prepared.elevation.loc[0, "elevation_m"], 250.0)
+        self.assertEqual(
+            prepared.city_climate_divisions.loc[0, "division_CLIMDIV"], "0101"
+        )
         self.assertEqual(len(prepared.additional_sources), 0)
         self.assertEqual(prepared.data_dir, self.data_dir)
+
+    def test_spatially_joins_stations_and_caches_division_attributes(self) -> None:
+        (self.data_dir / "city_climate_divisions.parquet").unlink()
+        archive_path = self.data_dir / "CONUS_CLIMATE_DIVISIONS.shp.zip"
+        archive_path.touch()
+        divisions = gpd.GeoDataFrame(
+            {"CLIMDIV": ["0101"]},
+            geometry=[box(-81.0, 39.0, -79.0, 41.0)],
+            crs="EPSG:4326",
+        )
+
+        with patch("geopandas.read_file", return_value=divisions) as read_file:
+            prepared = prepare_dataset(data_dir=self.data_dir)
+
+        read_file.assert_called_once_with(archive_path, engine="pyogrio")
+        self.assertTrue((self.data_dir / "city_climate_divisions.parquet").is_file())
+        self.assertEqual(len(prepared.city_climate_divisions), 1)
+        self.assertEqual(
+            prepared.city_climate_divisions.loc[0, "division_CLIMDIV"], "0101"
+        )
 
     def test_additional_source_receives_cutoff_and_is_kept_separate(self) -> None:
         seen_cutoffs: list[pd.Timestamp] = []
@@ -129,13 +163,25 @@ class PrepareDatasetTests(unittest.TestCase):
                     return BytesIO(responses[name])
             raise AssertionError(f"Unexpected URL: {url}")
 
-        with patch("climate_challenge.data.urlopen", side_effect=fake_urlopen):
+        archive_path = self.data_dir / "CONUS_CLIMATE_DIVISIONS.shp.zip"
+        archive_path.touch()
+        divisions = gpd.GeoDataFrame(
+            {"CLIMDIV": ["0101"]},
+            geometry=[box(-81.0, 39.0, -79.0, 41.0)],
+            crs="EPSG:4326",
+        )
+        with (
+            patch("climate_challenge.data.urlopen", side_effect=fake_urlopen),
+            patch("geopandas.read_file", return_value=divisions),
+        ):
             prepared = prepare_dataset(data_dir=self.data_dir)
 
         self.assertTrue((self.data_dir / "annual_indices.parquet").exists())
         self.assertTrue((self.data_dir / "city_info.parquet").exists())
         self.assertTrue((self.data_dir / "elevation.parquet").exists())
+        self.assertTrue((self.data_dir / "city_climate_divisions.parquet").exists())
         self.assertEqual(prepared.elevation.loc[0, "elevation_m"], 250.0)
+        self.assertEqual(len(prepared.city_climate_divisions), 1)
         self.assertEqual(len(prepared.annual_indices), 1)
 
 

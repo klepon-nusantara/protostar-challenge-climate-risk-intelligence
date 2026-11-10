@@ -16,6 +16,7 @@ TRAINING_REPOSITORY = "CMU-OSPO/protostar-climate-train-to-2018"
 TRAINING_REVISION = "bbbdebdab2a18e00f97ef87bd3f35a71e222180b"
 FORECAST_CUTOFF = pd.Timestamp("2018-12-31")
 OPEN_ELEVATION_URL = "https://api.open-elevation.com/api/v1/lookup"
+CLIMATE_DIVISIONS_ARCHIVE = "CONUS_CLIMATE_DIVISIONS.shp.zip"
 ORIGINAL_FILES = {
     "annual_indices": "annual_indices/train-00000-of-00001.parquet",
     "city_info": "city_info/train-00000-of-00001.parquet",
@@ -47,6 +48,7 @@ class PreparedDataset:
     annual_indices: pd.DataFrame
     city_info: pd.DataFrame
     elevation: pd.DataFrame
+    city_climate_divisions: pd.DataFrame
     additional_sources: dict[str, pd.DataFrame]
     cutoff: pd.Timestamp
     data_dir: Path
@@ -232,6 +234,112 @@ def _load_elevation_table(city_info: pd.DataFrame, data_dir: Path) -> pd.DataFra
     return elevation
 
 
+def _validate_city_climate_divisions(
+    city_climate_divisions: pd.DataFrame,
+    city_info: pd.DataFrame,
+) -> pd.DataFrame:
+    required = {"ID", "Name", "Lat", "Lon"}
+    _validate_columns(city_climate_divisions, required, "city_climate_divisions")
+    division_columns = [
+        column
+        for column in city_climate_divisions
+        if column.startswith("division_")
+    ]
+    if not division_columns:
+        raise ValueError(
+            "city_climate_divisions must contain climate division attributes"
+        )
+
+    result = city_climate_divisions.copy()
+    result["ID"] = result["ID"].astype("string")
+    if result["ID"].isna().any() or result["ID"].duplicated().any():
+        raise ValueError("city_climate_divisions contains missing or duplicate IDs")
+    expected = city_info.drop_duplicates("ID").loc[
+        :, ["ID", "Name", "Lat", "Lon"]
+    ].copy()
+    expected["ID"] = expected["ID"].astype("string")
+    if set(result["ID"]) != set(expected["ID"]):
+        raise ValueError("city_climate_divisions station IDs do not match city_info")
+    comparison = result.merge(
+        expected,
+        on="ID",
+        how="inner",
+        suffixes=("", "_expected"),
+        validate="one_to_one",
+    )
+    if not comparison["Name"].astype("string").equals(
+        comparison["Name_expected"].astype("string")
+    ):
+        raise ValueError("city_climate_divisions Name values do not match city_info")
+    for column in ("Lat", "Lon"):
+        coordinates = pd.to_numeric(comparison[column], errors="coerce")
+        expected_coordinates = pd.to_numeric(
+            comparison[f"{column}_expected"], errors="coerce"
+        )
+        if not coordinates.equals(expected_coordinates):
+            raise ValueError(
+                f"city_climate_divisions {column} values do not match city_info"
+            )
+
+    return result.sort_values("ID", ignore_index=True)
+
+
+def _load_city_climate_divisions(
+    city_info: pd.DataFrame, data_dir: Path
+) -> pd.DataFrame:
+    local_path = data_dir / "city_climate_divisions.parquet"
+    if local_path.is_file():
+        return _validate_city_climate_divisions(
+            pd.read_parquet(local_path), city_info
+        )
+
+    archive_path = data_dir / CLIMATE_DIVISIONS_ARCHIVE
+    if not archive_path.is_file():
+        raise FileNotFoundError(
+            f"Climate division shapefile archive not found: {archive_path}"
+        )
+
+    import geopandas as gpd
+
+    locations = _city_locations(city_info)
+    city_names = city_info.drop_duplicates("ID").loc[:, ["ID", "Name"]]
+    city_names["ID"] = city_names["ID"].astype("string")
+    cities = locations.merge(city_names, on="ID", how="left", validate="one_to_one")
+    city_points = gpd.GeoDataFrame(
+        cities,
+        geometry=gpd.points_from_xy(cities["Lon"], cities["Lat"]),
+        crs="EPSG:4326",
+    )
+    divisions = gpd.read_file(archive_path, engine="pyogrio")
+    if divisions.crs is None:
+        raise ValueError(
+            "Climate division shapefile has no coordinate reference system"
+        )
+    divisions = divisions.to_crs("EPSG:4326")
+    division_columns = [
+        column for column in divisions.columns if column != divisions.geometry.name
+    ]
+    divisions = divisions.loc[:, division_columns + [divisions.geometry.name]].rename(
+        columns={column: f"division_{column}" for column in division_columns}
+    )
+
+    joined = gpd.sjoin(city_points, divisions, how="left", predicate="within")
+    if joined["ID"].duplicated().any():
+        raise ValueError(
+            "Climate division spatial join matched a station to multiple divisions"
+        )
+    result = pd.DataFrame(joined.drop(columns=["geometry", "index_right"]))
+    result = _validate_city_climate_divisions(result, city_info)
+
+    temporary_path = local_path.with_suffix(".parquet.download")
+    try:
+        result.to_parquet(temporary_path, index=False)
+        temporary_path.replace(local_path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
+    return result
+
+
 def prepare_dataset(
     additional_sources: Iterable[DataSource] = (),
     cutoff: str | pd.Timestamp = FORECAST_CUTOFF,
@@ -255,6 +363,9 @@ def prepare_dataset(
     _validate_annual_cutoff(annual_indices, cutoff_timestamp)
     _validate_columns(city_info, CITY_REQUIRED_COLUMNS, "city_info")
     elevation = _load_elevation_table(city_info, resolved_data_dir)
+    city_climate_divisions = _load_city_climate_divisions(
+        city_info, resolved_data_dir
+    )
 
     source_tables: dict[str, pd.DataFrame] = {}
     for source in additional_sources:
@@ -275,6 +386,7 @@ def prepare_dataset(
         annual_indices=annual_indices,
         city_info=city_info,
         elevation=elevation,
+        city_climate_divisions=city_climate_divisions,
         additional_sources=source_tables,
         cutoff=cutoff_timestamp,
         data_dir=resolved_data_dir,
